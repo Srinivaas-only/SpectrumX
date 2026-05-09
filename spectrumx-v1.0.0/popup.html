@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SpectrumX</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <div class="logo">
+          <span class="logo-icon">⚡</span>
+          <span class="logo-text">SpectrumX</span>
+        </div>
+      </div>
+      <div class="header-right">
+        <button class="icon-btn" id="chatbotBtn" title="Open AI Chatbot">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        </button>
+        <button class="icon-btn" id="settingsBtn" title="Settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Next Deadline Countdown — the wow moment -->
+    <div class="countdown-hero" id="countdownHero" style="display:none;">
+      <div class="countdown-label">NEXT DEADLINE</div>
+      <div class="countdown-title" id="countdownTitle"></div>
+      <div class="countdown-timer">
+        <div class="countdown-unit">
+          <span class="countdown-value" id="cdDays">00</span>
+          <span class="countdown-unit-label">days</span>
+        </div>
+        <span class="countdown-sep">:</span>
+        <div class="countdown-unit">
+          <span class="countdown-value" id="cdHours">00</span>
+          <span class="countdown-unit-label">hrs</span>
+        </div>
+        <span class="countdown-sep">:</span>
+        <div class="countdown-unit">
+          <span class="countdown-value" id="cdMins">00</span>
+          <span class="countdown-unit-label">min</span>
+        </div>
+        <span class="countdown-sep">:</span>
+        <div class="countdown-unit">
+          <span class="countdown-value" id="cdSecs">00</span>
+          <span class="countdown-unit-label">sec</span>
+        </div>
+      </div>
+      <div class="countdown-meta" id="countdownMeta"></div>
+    </div>
+
+    <!-- Stats Bar -->
+    <div class="stats-bar" id="statsBar">
+      <div class="stat-card urgent">
+        <span class="stat-number" id="urgentCount">0</span>
+        <span class="stat-label">Urgent</span>
+      </div>
+      <div class="stat-card upcoming">
+        <span class="stat-number" id="upcomingCount">0</span>
+        <span class="stat-label">This Week</span>
+      </div>
+      <div class="stat-card later">
+        <span class="stat-number" id="laterCount">0</span>
+        <span class="stat-label">Later</span>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters">
+      <div class="filter-row">
+        <button class="filter-chip active" data-filter="all">All</button>
+        <button class="filter-chip" data-filter="exam">📝 Exams</button>
+        <button class="filter-chip" data-filter="quiz">❓ Quizzes</button>
+        <button class="filter-chip" data-filter="assignment">📄 Assignments</button>
+        <button class="filter-chip" data-filter="lab">🔬 Labs</button>
+        <button class="filter-chip" data-filter="presentation">📊 Presentations</button>
+      </div>
+      <div class="filter-row">
+        <select class="course-filter" id="courseFilter">
+          <option value="all">All Courses</option>
+        </select>
+        <label class="toggle-label">
+          <input type="checkbox" id="showPast">
+          <span>Show Past</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Events List -->
+    <div class="events-container" id="eventsContainer">
+      <div class="skeleton-list" id="skeleton">
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+      </div>
+    </div>
+
+    <!-- Empty State -->
+    <div class="empty-state" id="emptyState" style="display:none;">
+      <div class="empty-illustration">
+        <svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="50" cy="50" r="40" fill="#1A1A25" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
+          <path d="M35 50 L45 60 L65 40" stroke="#34D399" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <h3 class="empty-title">All clear! 🎉</h3>
+      <p class="empty-text">No matching deadlines. Try adjusting your filters, or visit Spectrum to let SpectrumX scan your courses.</p>
+    </div>
+
+    <!-- Deep Scan Status -->
+    <div class="scan-status" id="scanStatus" style="display:none;">
+      <div class="scan-progress">
+        <div class="scan-progress-bar" id="scanProgressBar"></div>
+      </div>
+      <span class="scan-text" id="scanText">Scanning...</span>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span class="footer-text" id="lastUpdated">Loading...</span>
+      <div class="footer-actions">
+        <button class="deep-scan-btn" id="deepScanBtn" title="Deep scan all courses">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          Deep Scan
+        </button>
+        <button class="refresh-btn" id="refreshBtn" title="Refresh">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+          Refresh
+        </button>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Settings Panel -->
+  <div class="settings-panel" id="settingsPanel" style="display:none;">
+    <header class="header">
+      <div class="header-left">
+        <button class="icon-btn" id="backBtn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+        </button>
+        <span class="logo-text">Settings</span>
+      </div>
+    </header>
+    <div class="settings-content">
+      <div class="setting-item">
+        <div class="setting-info">
+          <span class="setting-title">Notifications</span>
+          <span class="setting-desc">Get notified before deadlines</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="notifToggle" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="setting-item">
+        <div class="setting-info">
+          <span class="setting-title">Notify Before</span>
+          <span class="setting-desc">Hours before deadline to notify</span>
+        </div>
+        <select class="setting-select" id="notifyHours">
+          <option value="6">6 hours</option>
+          <option value="12">12 hours</option>
+          <option value="24" selected>24 hours</option>
+          <option value="48">48 hours</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

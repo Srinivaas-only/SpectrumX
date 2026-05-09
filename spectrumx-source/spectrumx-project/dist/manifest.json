@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "SpectrumX",
+  "version": "1.0.0",
+  "description": "A smarter way to track deadlines, exams, and assignments on UM Spectrum. Never miss a deadline again.",
+  "permissions": [
+    "storage",
+    "alarms",
+    "notifications",
+    "sidePanel",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://spectrum.um.edu.my/*",
+    "https://api.z.ai/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://spectrum.um.edu.my/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
