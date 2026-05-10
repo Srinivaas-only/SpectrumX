@@ -8,7 +8,8 @@
     "alarms",
     "notifications",
     "sidePanel",
-    "activeTab"
+    "activeTab",
+    "offscreen"
   ],
   "host_permissions": [
     "https://spectrum.um.edu.my/*",

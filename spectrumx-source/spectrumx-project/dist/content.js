@@ -1074,6 +1074,7 @@
         <div class="spectrumx-fab-menu" id="spectrumx-menu" style="display:none;">
           <button class="spectrumx-fab-menu-item" data-action="dashboard">📋 Dashboard</button>
           <button class="spectrumx-fab-menu-item" data-action="chatbot">🤖 Ask SpectrumX</button>
+          <button class="spectrumx-fab-menu-item" data-action="deepscan">🔍 Deep Scan All Courses</button>
           <button class="spectrumx-fab-menu-item" data-action="refresh">🔄 Refresh Data</button>
         </div>
       </div>
@@ -1097,10 +1098,27 @@
 
       switch (action) {
         case 'dashboard':
-          chrome.runtime.sendMessage({ type: 'OPEN_POPUP' });
+          try {
+            await chrome.runtime.sendMessage({ type: 'OPEN_CHATBOT' });
+          } catch(e) {
+            showToast('Click the ⚡ extension icon for dashboard');
+          }
           break;
         case 'chatbot':
-          chrome.runtime.sendMessage({ type: 'OPEN_CHATBOT' });
+          try {
+            await chrome.runtime.sendMessage({ type: 'OPEN_CHATBOT' });
+          } catch(e) {
+            showToast('Click ⚡ icon → Chat button');
+          }
+          break;
+        case 'deepscan':
+          showToast('🔍 Deep scanning all courses...');
+          try {
+            const result = await deepScanAndSend();
+            showToast(`Deep scan complete! Found ${result.events.length} events ✅`);
+          } catch(err) {
+            showToast('Deep scan failed: ' + err.message);
+          }
           break;
         case 'refresh':
           await scrapeAndSend();

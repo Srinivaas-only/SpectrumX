@@ -4,8 +4,12 @@
  * Handles:
  * - Storage management for scraped events
  * - Alarm-based deadline notifications
+ * - DeepScan — crawl multiple Spectrum pages for all deadlines
  * - Communication between content script, popup, and side panel
  */
+
+// Import DeepScanner (uses importScripts since manifest is not "type": "module")
+importScripts('./deepscan.js');
 
 // ============================================================
 // Side Panel Setup — opens chatbot when extension icon clicked
@@ -125,6 +129,54 @@ async function handleMessage(message, sender) {
         const response = await chrome.tabs.sendMessage(tab.id, { type: 'DEEP_SCAN_REQUEST' });
         return response || { success: false, error: 'No response from content script' };
       } catch (err) {
+        return { success: false, error: err.message };
+      }
+    }
+
+    // DeepScan — crawl multiple Spectrum pages for events via offscreen document
+    case 'DEEP_SCAN': {
+      try {
+        const scanner = new DeepScanner();
+        const results = await scanner.scan((progress) => {
+          // Send progress updates back to popup/sidepanel
+          chrome.runtime.sendMessage({
+            type: 'DEEP_SCAN_PROGRESS',
+            payload: progress
+          }).catch(() => {}); // Ignore if popup/sidepanel closed
+        });
+
+        // Save results to storage
+        if (results.events.length > 0) {
+          const existing = await chrome.storage.local.get(['events', 'courses']);
+          const existingEvents = existing.events || [];
+
+          // Combine and deduplicate
+          const allEvents = [...existingEvents, ...results.events];
+          const seen = new Set();
+          const merged = allEvents.filter(evt => {
+            const key = `${evt.title?.toLowerCase()?.trim()}-${evt.date?.substring(0, 10)}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+
+          await chrome.storage.local.set({
+            events: merged,
+            courses: results.courses.length > 0 ? results.courses : (existing.courses || []),
+            lastScraped: new Date().toISOString(),
+            lastDeepScan: new Date().toISOString(),
+            isDemo: false
+          });
+        }
+
+        return {
+          success: true,
+          eventsFound: results.events.length,
+          pagesScanned: results.scannedUrls.length,
+          errors: results.errors
+        };
+      } catch (err) {
+        console.error('[SpectrumX] DeepScan error:', err);
         return { success: false, error: err.message };
       }
     }

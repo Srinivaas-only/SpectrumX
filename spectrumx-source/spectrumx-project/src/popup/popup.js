@@ -335,7 +335,7 @@ document.getElementById('refreshBtn').addEventListener('click', async () => {
   await init();
 });
 
-// Deep Scan button — triggers autonomous scan of all course pages
+// Deep Scan button — triggers offscreen-powered scan of all Spectrum pages
 document.getElementById('deepScanBtn').addEventListener('click', async () => {
   const btn = document.getElementById('deepScanBtn');
   const scanStatus = document.getElementById('scanStatus');
@@ -345,13 +345,15 @@ document.getElementById('deepScanBtn').addEventListener('click', async () => {
   btn.classList.add('scanning');
   btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Scanning...';
   scanStatus.style.display = 'flex';
-  scanText.textContent = 'Looking for Spectrum tab...';
+  scanText.textContent = 'Starting DeepScan...';
+  scanBar.style.width = '5%';
 
-  // Listen for progress updates from content script (via background)
+  // Listen for progress updates from background (offscreen scanner)
   const progressListener = (message) => {
     if (message.type === 'DEEP_SCAN_PROGRESS') {
-      const { current, total, message: msg } = message.payload;
-      const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+      const { phase, message: msg } = message.payload;
+      const phases = { dashboard: 15, calendar: 35, courses: 70 };
+      const pct = phases[phase] || 50;
       scanBar.style.width = pct + '%';
       scanText.textContent = msg;
     }
@@ -359,20 +361,21 @@ document.getElementById('deepScanBtn').addEventListener('click', async () => {
   chrome.runtime.onMessage.addListener(progressListener);
 
   try {
-    const result = await chrome.runtime.sendMessage({ type: 'TRIGGER_DEEP_SCAN' });
+    // Use the new offscreen-powered DEEP_SCAN (no Spectrum tab needed!)
+    const result = await chrome.runtime.sendMessage({ type: 'DEEP_SCAN' });
 
     if (result.success) {
       scanBar.style.width = '100%';
-      scanText.textContent = `Found ${result.eventCount} events across all courses ✅`;
+      scanText.textContent = `Found ${result.eventsFound} events across ${result.pagesScanned} pages ✅`;
       // Refresh the dashboard with new data
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 1000));
       await init();
     } else {
       scanText.textContent = result.error || 'Scan failed';
       scanBar.style.width = '0%';
     }
   } catch (err) {
-    scanText.textContent = 'Error: Make sure Spectrum is open in a tab';
+    scanText.textContent = 'Error: ' + (err.message || 'Unknown error');
     scanBar.style.width = '0%';
   }
 

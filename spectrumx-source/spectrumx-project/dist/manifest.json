@@ -8,11 +8,13 @@
     "alarms",
     "notifications",
     "sidePanel",
-    "activeTab"
+    "activeTab",
+    "offscreen"
   ],
   "host_permissions": [
     "https://spectrum.um.edu.my/*",
-    "https://api.z.ai/*"
+    "https://api.z.ai/*",
+    "https://api.ilmu.ai/*"
   ],
   "background": {
     "service_worker": "background.js"

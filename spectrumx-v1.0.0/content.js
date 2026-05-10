@@ -1098,7 +1098,6 @@
 
       switch (action) {
         case 'dashboard':
-          // Open the popup by opening sidepanel (popup can't be opened programmatically)
           try {
             await chrome.runtime.sendMessage({ type: 'OPEN_CHATBOT' });
           } catch(e) {

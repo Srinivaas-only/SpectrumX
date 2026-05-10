@@ -29,6 +29,12 @@ cp "$PUBLIC_DIR/icons/"*.png "$BUILD_DIR/icons/" 2>/dev/null || echo "⚠ No ico
 # so we inline the required code
 echo "  → Building background.js"
 cp "$SRC_DIR/background/background.js" "$BUILD_DIR/background.js"
+cp "$SRC_DIR/background/deepscan.js" "$BUILD_DIR/deepscan.js"
+
+# ---- Offscreen Document (for DeepScan DOM parsing) ----
+echo "  → Building offscreen document"
+cp "$PUBLIC_DIR/offscreen.html" "$BUILD_DIR/offscreen.html"
+cp "$SRC_DIR/background/offscreen.js" "$BUILD_DIR/offscreen.js"
 
 # ---- Content Script ----
 echo "  → Building content script"
