@@ -108,6 +108,73 @@ class DeepScanner {
     };
   }
 
+  /**
+   * Context-aware scan: scan ONE specific course deeply.
+   * Used when the user is currently on a course page.
+   * Scans the course page + each assignment sub-page + announcements forum.
+   */
+  async scanCurrentCourse(courseUrl, onProgress) {
+    this.events = [];
+    this.courses = [];
+    this.scannedUrls = [];
+    this.errors = [];
+
+    // Extract course ID from URL
+    const idMatch = courseUrl.match(/id=(\d+)/);
+    const moodleId = idMatch ? idMatch[1] : 'unknown';
+
+    onProgress?.({ phase: 'course', message: 'Scanning course page...' });
+    const courseData = await this.fetchAndParse(courseUrl, 'course');
+    if (!courseData) {
+      try { await chrome.offscreen.closeDocument(); } catch (e) {}
+      return {
+        events: [],
+        courses: [],
+        scannedUrls: this.scannedUrls,
+        errors: this.errors
+      };
+    }
+
+    this.events.push(...(courseData.events || []));
+
+    // Determine course code from the events we found, or fallback
+    const courseCode = courseData.events?.[0]?.courseId || `Course-${moodleId}`;
+    this.courses = [{ id: courseCode, moodleId: moodleId, url: courseUrl }];
+
+    // Scan each assignment sub-page (limit to 10 to avoid hammering)
+    const assignmentUrls = (courseData.assignmentUrls || []).slice(0, 10);
+    for (let i = 0; i < assignmentUrls.length; i++) {
+      onProgress?.({
+        phase: 'assignments',
+        message: `Scanning assignments (${i + 1}/${assignmentUrls.length})...`
+      });
+      const assignData = await this.fetchAndParse(assignmentUrls[i], 'assignment', courseCode);
+      if (assignData) this.events.push(...(assignData.events || []));
+      await this.delay(200);
+    }
+
+    // Scan announcements forum (max 1)
+    const forumUrls = (courseData.forumUrls || []).slice(0, 1);
+    for (let i = 0; i < forumUrls.length; i++) {
+      onProgress?.({ phase: 'announcements', message: 'Scanning announcements...' });
+      const forumData = await this.fetchAndParse(forumUrls[i], 'forum', courseCode);
+      if (forumData) this.events.push(...(forumData.events || []));
+      await this.delay(200);
+    }
+
+    try { await chrome.offscreen.closeDocument(); } catch (e) {}
+
+    this.cleanInvalidEvents();
+    this.deduplicateEvents();
+
+    return {
+      events: this.events,
+      courses: this.courses,
+      scannedUrls: this.scannedUrls,
+      errors: this.errors
+    };
+  }
+
   cleanInvalidEvents() {
     this.events = this.events.filter(evt => {
       if (!evt.title || evt.title.length < 2) return false;

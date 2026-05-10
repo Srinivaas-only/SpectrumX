@@ -54,6 +54,12 @@ async function handleParseHtml({ url, extractType, courseCode }) {
       case 'course':
         extracted = extractCoursePage(doc, courseCode);
         break;
+      case 'assignment':
+        extracted = extractAssignmentPage(doc, courseCode);
+        break;
+      case 'forum':
+        extracted = extractForumPage(doc, courseCode);
+        break;
       default:
         extracted = { courses: [], events: [] };
     }
@@ -201,11 +207,12 @@ function extractCalendarMonth(doc) {
 // ============================================================
 function extractCoursePage(doc, courseCode) {
   const events = [];
+  const assignmentUrls = [];
+  const forumUrls = [];
   const code = courseCode || extractCourseCodeFromTitle(doc.title) || 'Unknown';
 
-  // Find activities that could be deadline-bearing
   const activities = doc.querySelectorAll(
-    'li.modtype_assign, li.modtype_quiz, li.modtype_workshop, li.modtype_lesson, li.modtype_choice'
+    'li.modtype_assign, li.modtype_quiz, li.modtype_workshop, li.modtype_lesson, li.modtype_choice, li.modtype_forum'
   );
 
   activities.forEach(activity => {
@@ -219,21 +226,27 @@ function extractCoursePage(doc, courseCode) {
                  activity.querySelector('a.aalink');
     const sourceUrl = link?.href || '';
 
-    // Extract description for date hints
+    // Collect URLs for deeper scanning
+    if (activity.classList.contains('modtype_assign') && sourceUrl) {
+      assignmentUrls.push(sourceUrl);
+    }
+    if (activity.classList.contains('modtype_forum') && sourceUrl &&
+        /announcement/i.test(activityName)) {
+      forumUrls.push(sourceUrl);
+    }
+
+    // Skip pure forum activities for direct event extraction
+    if (activity.classList.contains('modtype_forum')) return;
+
     const descEl = activity.querySelector('.activity-description, .activity-altcontent');
     const description = descEl?.textContent?.trim() || '';
 
-    // Determine type from class
     let type = 'other';
     if (activity.classList.contains('modtype_assign')) type = 'assignment';
     else if (activity.classList.contains('modtype_quiz')) type = 'quiz';
     else if (activity.classList.contains('modtype_workshop')) type = 'project';
     else if (activity.classList.contains('modtype_lesson')) type = 'tutorial';
 
-    // Try to extract a date from the activity name OR description
-    // UM lecturers commonly embed dates in activity names like:
-    //   "Individual Assignment Due Date 5th April 2026"
-    //   "Group Project: Submission Deadline12 June 2026"
     const date = parseDateFromText(activityName) || parseDateFromText(description);
 
     if (date) {
@@ -249,7 +262,7 @@ function extractCoursePage(doc, courseCode) {
     }
   });
 
-  return { events };
+  return { events, assignmentUrls, forumUrls };
 }
 
 // ============================================================
@@ -265,6 +278,104 @@ function extractCourseCodeFromTitle(text) {
 function extractCourseCodeFromUrl(url) {
   // Some Moodle URLs include course context, but mostly we extract via title
   return null;
+}
+
+// ============================================================
+// EXTRACT: SINGLE ASSIGNMENT PAGE
+//   URL: https://spectrum.um.edu.my/mod/assign/view.php?id=XXX
+//
+// Assignment pages contain a "Submission status" table with the actual due date
+// and a description that often has more date info.
+// ============================================================
+function extractAssignmentPage(doc, courseCode) {
+  const events = [];
+  const code = courseCode || 'Unknown';
+
+  const titleEl = doc.querySelector('#page-header h1, .page-header-headings h1, h1');
+  const title = titleEl?.textContent?.trim() || 'Assignment';
+
+  // Look for "Due date" in the activity-dates region
+  const dateBlocks = doc.querySelectorAll(
+    '[data-region="activity-dates"] [data-region="activity-date-item"], ' +
+    '.activity-date, ' +
+    '.submissionstatustable td, ' +
+    '.box.generalbox td'
+  );
+
+  let foundDate = null;
+  dateBlocks.forEach(block => {
+    const text = block.textContent.trim();
+    // Match "Due:" or "Closes:" patterns
+    const dueMatch = text.match(/(?:Due|Closes|Deadline)[:\s]+(.+?)(?:\n|$)/i);
+    if (dueMatch && !foundDate) {
+      const parsed = parseDateFromText(dueMatch[1]);
+      if (parsed) foundDate = parsed;
+    }
+  });
+
+  // Fallback: parse date from page content
+  const mainContent = doc.querySelector('#region-main, [role="main"]')?.textContent || '';
+  if (!foundDate) {
+    foundDate = parseDateFromText(mainContent);
+  }
+
+  if (foundDate) {
+    events.push({
+      title: title,
+      courseId: code,
+      type: 'assignment',
+      date: foundDate,
+      sourceUrl: '',
+      sourceText: `Spectrum > ${code} > ${title}`,
+      description: mainContent.substring(0, 300)
+    });
+  }
+
+  return { events };
+}
+
+// ============================================================
+// EXTRACT: ANNOUNCEMENTS FORUM
+//   URL: https://spectrum.um.edu.my/mod/forum/view.php?id=XXX
+//
+// Forum pages list discussions. We scan the discussion table for date hints.
+// ============================================================
+function extractForumPage(doc, courseCode) {
+  const events = [];
+  const code = courseCode || 'Unknown';
+
+  // Forum discussion list
+  const discussions = doc.querySelectorAll(
+    '.discussion-list tr, table.discussionsubject tr, [data-region="discussion-list"] [data-region="post"]'
+  );
+
+  discussions.forEach(disc => {
+    const subjectLink = disc.querySelector('a[href*="discuss.php"], .topic a, .discussionname a');
+    if (!subjectLink) return;
+
+    const subject = subjectLink.textContent.trim();
+    const sourceUrl = subjectLink.href || '';
+
+    // Try to find a date in the subject
+    const date = parseDateFromText(subject);
+    if (!date) return;
+
+    // Skip if subject doesn't sound like a deadline announcement
+    const lowerSubject = subject.toLowerCase();
+    if (!/quiz|test|exam|assign|deadline|due|submit|lab|project|presentation|viva/.test(lowerSubject)) return;
+
+    events.push({
+      title: subject,
+      courseId: code,
+      type: inferTypeFromComponent('', subject),
+      date: date,
+      sourceUrl: sourceUrl,
+      sourceText: `Spectrum > ${code} > Announcements`,
+      description: ''
+    });
+  });
+
+  return { events };
 }
 
 function inferTypeFromComponent(component, title) {

@@ -41,9 +41,9 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-  width: 400px;
-  min-height: 500px;
-  max-height: 600px;
+  width: 440px;
+  min-height: 580px;
+  max-height: 680px;
   overflow: hidden;
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--bg-primary);
@@ -60,7 +60,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  max-height: 600px;
+  max-height: 680px;
   overflow: hidden;
 }
 
@@ -692,4 +692,9 @@ body {
   font-weight: 600;
   color: var(--text-secondary);
   text-align: center;
+}
+
+/* Make sure hidden empty state actually stays hidden */
+.empty-state[hidden] {
+  display: none !important;
 }

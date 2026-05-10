@@ -175,41 +175,52 @@ function groupByPriority(events) {
 // ============================================================
 function renderEvents() {
   const filtered = getFilteredEvents();
+  const emptyEl = document.getElementById('emptyState');
 
   if (filtered.length === 0) {
     eventsContainer.innerHTML = '';
     
     if (allEvents.length === 0) {
       // No data at all — show Spectrum CTA
-      emptyState.innerHTML = `
-        <div class="empty-illustration">
-          <svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="50" cy="50" r="40" fill="#1A1A25" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
-            <text x="50" y="55" text-anchor="middle" fill="#34D399" font-size="28">📚</text>
-          </svg>
-        </div>
-        <h3 class="empty-title">No deadlines loaded yet</h3>
-        <p class="empty-text">Visit your <a href="https://spectrum.um.edu.my" target="_blank" style="color: #34D399; text-decoration: underline;">Spectrum dashboard</a> and this extension will auto-scan your courses and deadlines.</p>
-      `;
+      if (emptyEl) {
+        emptyEl.innerHTML = `
+          <div class="empty-illustration">
+            <svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="50" cy="50" r="40" fill="#1A1A25" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
+              <text x="50" y="55" text-anchor="middle" fill="#34D399" font-size="28">📚</text>
+            </svg>
+          </div>
+          <h3 class="empty-title">No deadlines loaded yet</h3>
+          <p class="empty-text">Visit your <a href="https://spectrum.um.edu.my" target="_blank" style="color: #34D399; text-decoration: underline;">Spectrum dashboard</a> and this extension will auto-scan your courses and deadlines.</p>
+        `;
+      }
     } else {
       // Has data but filters show nothing
-      emptyState.innerHTML = `
-        <div class="empty-illustration">
-          <svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="50" cy="50" r="40" fill="#1A1A25" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
-            <path d="M35 50 L45 60 L65 40" stroke="#34D399" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </div>
-        <h3 class="empty-title">All clear! 🎉</h3>
-        <p class="empty-text">No matching deadlines. Try adjusting your filters.</p>
-      `;
+      if (emptyEl) {
+        emptyEl.innerHTML = `
+          <div class="empty-illustration">
+            <svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="50" cy="50" r="40" fill="#1A1A25" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
+              <path d="M35 50 L45 60 L65 40" stroke="#34D399" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <h3 class="empty-title">All clear! 🎉</h3>
+          <p class="empty-text">No matching deadlines. Try adjusting your filters.</p>
+        `;
+      }
     }
     
-    emptyState.style.display = 'flex';
+    if (emptyEl) {
+      emptyEl.style.display = 'flex';
+      emptyEl.removeAttribute('hidden');
+    }
     return;
   }
 
-  emptyState.style.display = 'none';
+  if (emptyEl) {
+    emptyEl.style.display = 'none';
+    emptyEl.setAttribute('hidden', 'hidden');
+  }
   const groups = groupByPriority(filtered);
   let html = '';
 
@@ -335,7 +346,8 @@ document.getElementById('refreshBtn').addEventListener('click', async () => {
   await init();
 });
 
-// Deep Scan button — triggers offscreen-powered scan of all Spectrum pages
+// DeepScan button — context-aware: scans current course if on a course page,
+// otherwise scans everything
 document.getElementById('deepScanBtn').addEventListener('click', async () => {
   const btn = document.getElementById('deepScanBtn');
   const scanStatus = document.getElementById('scanStatus');
@@ -348,26 +360,48 @@ document.getElementById('deepScanBtn').addEventListener('click', async () => {
   scanText.textContent = 'Starting DeepScan...';
   scanBar.style.width = '5%';
 
-  // Listen for progress updates from background (offscreen scanner)
+  // Detect whether we're on a Spectrum course page right now
+  let scanMode = 'all';
+  let courseUrl = null;
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.url?.includes('spectrum.um.edu.my/course/view.php')) {
+      scanMode = 'current-course';
+      courseUrl = tab.url;
+      scanText.textContent = 'Deep scanning this course...';
+    } else {
+      scanText.textContent = 'Starting full DeepScan...';
+    }
+  } catch (e) { /* fall back to all */ }
+
+  // Listen for progress updates
   const progressListener = (message) => {
     if (message.type === 'DEEP_SCAN_PROGRESS') {
-      const { phase, message: msg } = message.payload;
-      const phases = { home: 15, calendar: 35, courses: 70 };
-      const pct = phases[phase] || 50;
-      scanBar.style.width = pct + '%';
-      scanText.textContent = msg;
+      scanText.textContent = message.payload.message;
+      const phases = {
+        home: 15, calendar: 35, courses: 70,
+        course: 30, assignments: 70, announcements: 90
+      };
+      scanBar.style.width = (phases[message.payload.phase] || 50) + '%';
     }
   };
   chrome.runtime.onMessage.addListener(progressListener);
 
   try {
-    // Use the new offscreen-powered DEEP_SCAN (no Spectrum tab needed!)
-    const result = await chrome.runtime.sendMessage({ type: 'DEEP_SCAN' });
+    let result;
+    if (scanMode === 'current-course') {
+      result = await chrome.runtime.sendMessage({
+        type: 'DEEP_SCAN_CURRENT_COURSE',
+        payload: { courseUrl }
+      });
+    } else {
+      result = await chrome.runtime.sendMessage({ type: 'DEEP_SCAN' });
+    }
 
     if (result.success) {
       scanBar.style.width = '100%';
       scanText.textContent = `Found ${result.eventsFound} events across ${result.pagesScanned} pages ✅`;
-      // Refresh the dashboard with new data
       await new Promise(r => setTimeout(r, 1000));
       await init();
     } else {
