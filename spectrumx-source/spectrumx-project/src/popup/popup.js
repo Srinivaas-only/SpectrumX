@@ -446,15 +446,10 @@ document.getElementById('smartScanBtn').addEventListener('click', async () => {
     }
   } catch (e) { return; }
 
-  // Get API key
-  const data = await chrome.storage.local.get(['zaiApiKey']);
-  if (!data.zaiApiKey) {
-    scanStatus.style.display = 'flex';
-    scanText.textContent = 'Set your Z.AI API key in the chatbot first';
-    scanBar.style.width = '0%';
-    setTimeout(() => { scanStatus.style.display = 'none'; }, 3000);
-    return;
-  }
+  // Get API key — same key as chatbot (ilmuApiKey), with built-in fallback
+  const BUILT_IN_KEY = 'sk-74051ec75bec68491743904988c68f95d7e67b977634fd8f';
+  const stored = await chrome.storage.local.get(['ilmuApiKey']);
+  const apiKey = stored.ilmuApiKey || BUILT_IN_KEY;
 
   btn.classList.add('scanning');
   scanStatus.style.display = 'flex';
@@ -474,7 +469,7 @@ document.getElementById('smartScanBtn').addEventListener('click', async () => {
   try {
     const result = await chrome.runtime.sendMessage({
       type: 'SMART_SCAN_PDFS',
-      payload: { courseUrl, apiKey: data.zaiApiKey }
+      payload: { courseUrl, apiKey }
     });
     chrome.runtime.onMessage.removeListener(progressListener);
 
