@@ -34,7 +34,13 @@ cp "$SRC_DIR/background/deepscan.js" "$BUILD_DIR/deepscan.js"
 # ---- Offscreen Document (for DeepScan DOM parsing) ----
 echo "  → Building offscreen document"
 cp "$PUBLIC_DIR/offscreen.html" "$BUILD_DIR/offscreen.html"
-cp "$SRC_DIR/background/offscreen.js" "$BUILD_DIR/offscreen.js"
+sed 's|../lib/pdf.mjs|./lib/pdf.mjs|g' "$SRC_DIR/background/offscreen.js" > "$BUILD_DIR/offscreen.js"
+
+# ---- PDF.js Library ----
+echo "  → Copying PDF.js library"
+mkdir -p "$BUILD_DIR/lib"
+cp "$PUBLIC_DIR/lib/pdf.mjs" "$BUILD_DIR/lib/pdf.mjs"
+cp "$PUBLIC_DIR/lib/pdf.worker.mjs" "$BUILD_DIR/lib/pdf.worker.mjs"
 
 # ---- Content Script ----
 echo "  → Building content script"

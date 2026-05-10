@@ -250,7 +250,7 @@ function renderEvents() {
       const icon = getEventIcon(event.type);
 
       html += `
-        <div class="event-card ${priority}" data-event-id="${event.id}" style="animation-delay: ${index * 0.05}s;">
+        <div class="event-card ${priority}" data-event-id="${event.id}" data-ai-extracted="${event.aiExtracted ? 'true' : 'false'}" style="animation-delay: ${index * 0.05}s;">
           <div class="event-icon">${icon}</div>
           <div class="event-content">
             <div class="event-title">${escapeHtml(event.title)}</div>
@@ -422,6 +422,83 @@ document.getElementById('deepScanBtn').addEventListener('click', async () => {
     scanStatus.style.display = 'none';
     scanBar.style.width = '0%';
   }, 4000);
+});
+
+// Smart Scan button — uses AI to read PDFs on the current course page
+document.getElementById('smartScanBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('smartScanBtn');
+  const scanStatus = document.getElementById('scanStatus');
+  const scanText = document.getElementById('scanText');
+  const scanBar = document.getElementById('scanProgressBar');
+
+  // Check that we're on a course page
+  let courseUrl = null;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.url?.includes('spectrum.um.edu.my/course/view.php')) {
+      courseUrl = tab.url;
+    } else {
+      scanStatus.style.display = 'flex';
+      scanText.textContent = 'Open a Spectrum course page first to use Smart Scan';
+      scanBar.style.width = '0%';
+      setTimeout(() => { scanStatus.style.display = 'none'; }, 3000);
+      return;
+    }
+  } catch (e) { return; }
+
+  // Get API key
+  const data = await chrome.storage.local.get(['zaiApiKey']);
+  if (!data.zaiApiKey) {
+    scanStatus.style.display = 'flex';
+    scanText.textContent = 'Set your Z.AI API key in the chatbot first';
+    scanBar.style.width = '0%';
+    setTimeout(() => { scanStatus.style.display = 'none'; }, 3000);
+    return;
+  }
+
+  btn.classList.add('scanning');
+  scanStatus.style.display = 'flex';
+  scanText.textContent = 'Starting Smart Scan...';
+  scanBar.style.width = '5%';
+
+  // Listen for progress
+  const progressListener = (message) => {
+    if (message.type === 'DEEP_SCAN_PROGRESS') {
+      scanText.textContent = message.payload.message;
+      const phases = { discover: 15, pdf: 50, ai: 75 };
+      scanBar.style.width = (phases[message.payload.phase] || 50) + '%';
+    }
+  };
+  chrome.runtime.onMessage.addListener(progressListener);
+
+  try {
+    const result = await chrome.runtime.sendMessage({
+      type: 'SMART_SCAN_PDFS',
+      payload: { courseUrl, apiKey: data.zaiApiKey }
+    });
+    chrome.runtime.onMessage.removeListener(progressListener);
+
+    if (result.success) {
+      scanBar.style.width = '100%';
+      scanText.textContent = `🤖 AI found ${result.eventsFound} deadlines in ${result.pdfsScanned} PDFs!`;
+      setTimeout(async () => {
+        scanStatus.style.display = 'none';
+        scanBar.style.width = '0%';
+        await init();
+      }, 2500);
+    } else {
+      scanText.textContent = result.error || 'Smart Scan failed';
+      scanBar.style.width = '0%';
+      setTimeout(() => { scanStatus.style.display = 'none'; }, 3000);
+    }
+  } catch (err) {
+    chrome.runtime.onMessage.removeListener(progressListener);
+    scanText.textContent = `Error: ${err.message}`;
+    scanBar.style.width = '0%';
+    setTimeout(() => { scanStatus.style.display = 'none'; }, 3000);
+  }
+
+  btn.classList.remove('scanning');
 });
 
 document.getElementById('chatbotBtn').addEventListener('click', async () => {

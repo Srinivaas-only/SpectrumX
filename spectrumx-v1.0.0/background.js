@@ -190,6 +190,53 @@ async function handleMessage(message, sender) {
       }
     }
 
+    // Smart PDF Scan — extract deadlines from PDFs using AI
+    case 'SMART_SCAN_PDFS': {
+      try {
+        const { courseUrl, apiKey } = message.payload;
+        if (!courseUrl || !apiKey) {
+          return { success: false, error: 'Course URL and API key required' };
+        }
+
+        const scanner = new DeepScanner();
+        const results = await scanner.smartScanCurrentCourse(courseUrl, apiKey, (progress) => {
+          chrome.runtime.sendMessage({
+            type: 'DEEP_SCAN_PROGRESS',
+            payload: progress
+          }).catch(() => {});
+        });
+
+        if (results.events.length > 0) {
+          const existing = await chrome.storage.local.get(['events']);
+          const existingEvents = existing.events || [];
+          const allEvents = [...existingEvents, ...results.events];
+          const seen = new Set();
+          const merged = allEvents.filter(evt => {
+            const key = `${evt.courseId}-${evt.title?.toLowerCase()?.trim()}-${evt.date?.substring(0, 10)}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+
+          await chrome.storage.local.set({
+            events: merged,
+            lastScraped: new Date().toISOString(),
+            isDemo: false
+          });
+        }
+
+        return {
+          success: true,
+          eventsFound: results.events.length,
+          pdfsScanned: results.pdfsScanned || 0,
+          errors: results.errors
+        };
+      } catch (err) {
+        console.error('[SpectrumX] Smart scan error:', err);
+        return { success: false, error: err.message };
+      }
+    }
+
     // DeepScan — crawl multiple Spectrum pages for events via offscreen document
     case 'DEEP_SCAN': {
       try {

@@ -694,3 +694,60 @@ body {
 .empty-state[hidden] {
   display: none !important;
 }
+
+/* ============================================================
+   Smart Scan Button
+   ============================================================ */
+.smartscan-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  background: var(--upcoming-soft);
+  color: var(--upcoming);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.smartscan-btn:hover {
+  background: rgba(251, 191, 36, 0.2);
+  border-color: rgba(251, 191, 36, 0.4);
+}
+
+.smartscan-btn:active {
+  transform: scale(0.95);
+}
+
+.smartscan-btn.scanning {
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.smartscan-btn.scanning svg {
+  animation: spin 1s linear infinite;
+}
+
+/* AI-extracted event cards get a special badge */
+.event-card {
+  position: relative;
+}
+
+.event-card[data-ai-extracted="true"]::after {
+  content: 'AI';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--upcoming-soft);
+  color: var(--upcoming);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}

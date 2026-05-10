@@ -5,15 +5,26 @@
  * This offscreen document runs in a normal page context with full DOM access.
  * The background worker delegates HTML parsing here.
  *
+ * Also handles PDF text extraction via PDF.js.
+ *
  * Selectors are tuned to UM Spectrum (https://spectrum.um.edu.my/)
  * which runs Moodle 4.x with the Moove theme.
  */
+
+// PDF.js — for extracting text from PDF resources
+import * as pdfjsLib from './lib/pdf.mjs';
+pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('lib/pdf.worker.mjs');
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.target !== 'offscreen') return;
 
   if (message.type === 'PARSE_HTML') {
     handleParseHtml(message.payload).then(sendResponse);
+    return true;
+  }
+
+  if (message.type === 'EXTRACT_PDF_TEXT') {
+    handleExtractPdfText(message.payload).then(sendResponse);
     return true;
   }
 });
@@ -70,18 +81,47 @@ async function handleParseHtml({ url, extractType, courseCode }) {
   }
 }
 
+/**
+ * Fetch a PDF, extract all text using PDF.js.
+ * Returns { success, text, pageCount, url }
+ */
+async function handleExtractPdfText({ url }) {
+  try {
+    const response = await fetch(url, { credentials: 'include' });
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}`, url };
+    }
+
+    const buffer = await response.arrayBuffer();
+    const loadingTask = pdfjsLib.getDocument({ data: buffer });
+    const pdf = await loadingTask.promise;
+
+    let fullText = '';
+    const pageCount = pdf.numPages;
+
+    // Extract text from each page (limit to first 20 pages to avoid huge PDFs)
+    const maxPages = Math.min(pageCount, 20);
+    for (let i = 1; i <= maxPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items.map(item => item.str).join(' ');
+      fullText += pageText + '\n\n';
+    }
+
+    return {
+      success: true,
+      text: fullText.trim(),
+      pageCount: pageCount,
+      truncated: pageCount > maxPages,
+      url: url
+    };
+  } catch (err) {
+    return { success: false, error: err.message, url };
+  }
+}
+
 // ============================================================
-// EXTRACT: HOME PAGE (https://spectrum.um.edu.my/)
-//
-// The Home page contains ALL enrolled courses as cards:
-// <div class="card dashboard-card" data-region="course-content" data-course-id="2447">
-//   <a href="https://spectrum.um.edu.my/course/view.php?id=2447">
-//     <span class="sr-only">GIG1005 SOCIAL ENGAGEMENT</span>
-//     <div class="course-category">University</div>
-//   </a>
-//   <a class="aalink coursename">GIG1005 SOCIAL ENGAGEMENT</a>
-//   <div class="course-summary">Session 2025/2026 Semester 2</div>
-// </div>
+// EXTRACT: HOME PAGE
 // ============================================================
 function extractHome(doc) {
   const courses = [];
@@ -95,7 +135,6 @@ function extractHome(doc) {
     const categoryEl = card.querySelector('.course-category');
     const category = categoryEl?.textContent?.trim() || '';
 
-    // Extract course code (e.g., "WIA1006/WID3006" or "GIG1005")
     const codeMatch = fullName.match(/^([A-Z]{2,4}\d{3,4}(?:\/[A-Z]{2,4}\d{3,4})?)/);
     const courseCode = codeMatch ? codeMatch[1] : `Course-${moodleId}`;
     const courseName = codeMatch ? fullName.replace(codeMatch[0], '').trim() : fullName;
@@ -114,25 +153,6 @@ function extractHome(doc) {
 
 // ============================================================
 // EXTRACT: CALENDAR MONTH VIEW
-//   URL: https://spectrum.um.edu.my/calendar/view.php?view=month
-//
-// Calendar structure on UM Spectrum:
-// <td class="day" data-day-timestamp="1777996800" data-region="day">
-//   <div data-region="day-content">
-//     <ul>
-//       <li data-region="event-item"
-//           data-event-component="mod_quiz"
-//           data-event-eventtype="open|close|due">
-//         <a data-action="view-event"
-//            data-event-id="1159727"
-//            href="https://spectrum.um.edu.my/mod/quiz/view.php?id=1093664"
-//            title="20252026-2 Mid Term Quiz opens">
-//           <span class="eventname">20252026-2 Mid Term Quiz opens</span>
-//         </a>
-//       </li>
-//     </ul>
-//   </div>
-// </td>
 // ============================================================
 function extractCalendarMonth(doc) {
   const events = [];
@@ -157,10 +177,8 @@ function extractCalendarMonth(doc) {
       const eventComponent = item.getAttribute('data-event-component') || '';
       const eventType = item.getAttribute('data-event-eventtype') || '';
 
-      // Skip pure attendance markers — they're not deadlines
       if (eventComponent === 'mod_attendance' && eventType === 'attendance') return;
 
-      // Extract course code from title or URL
       const courseId = extractCourseCodeFromTitle(title) ||
                        extractCourseCodeFromUrl(sourceUrl) || 'Unknown';
 
@@ -182,37 +200,17 @@ function extractCalendarMonth(doc) {
 }
 
 // ============================================================
-// EXTRACT: COURSE PAGE (https://spectrum.um.edu.my/course/view.php?id=XXX)
-//
-// Course pages contain activity items:
-// <li class="activity activity-wrapper assign modtype_assign" data-id="1080255">
-//   <div class="activity-item" data-activityname="Individual Assignment Due Date 5th April 2026">
-//     <a href="https://spectrum.um.edu.my/mod/assign/view.php?id=1080255">
-//       <span class="instancename">Individual Assignment Due Date 5th April 2026</span>
-//     </a>
-//     <div class="activity-altcontent activity-description">
-//       <!-- Description text often contains date keywords -->
-//     </div>
-//   </div>
-// </li>
-//
-// Activity types we care about:
-//   modtype_assign       → assignment
-//   modtype_quiz         → quiz
-//   modtype_forum        → forum (often has announcements)
-//   modtype_workshop     → workshop
-//   modtype_lesson       → lesson
-//   modtype_choice       → choice
-//   modtype_attendance   → IGNORED (just attendance markers)
+// EXTRACT: COURSE PAGE
 // ============================================================
 function extractCoursePage(doc, courseCode) {
   const events = [];
   const assignmentUrls = [];
   const forumUrls = [];
+  const pdfUrls = [];
   const code = courseCode || extractCourseCodeFromTitle(doc.title) || 'Unknown';
 
   const activities = doc.querySelectorAll(
-    'li.modtype_assign, li.modtype_quiz, li.modtype_workshop, li.modtype_lesson, li.modtype_choice, li.modtype_forum'
+    'li.modtype_assign, li.modtype_quiz, li.modtype_workshop, li.modtype_lesson, li.modtype_choice, li.modtype_forum, li.modtype_resource'
   );
 
   activities.forEach(activity => {
@@ -235,8 +233,16 @@ function extractCoursePage(doc, courseCode) {
       forumUrls.push(sourceUrl);
     }
 
+    // Collect PDF resource URLs (lecture slides, assignment briefs, etc.)
+    if (activity.classList.contains('modtype_resource') && sourceUrl) {
+      pdfUrls.push({ url: sourceUrl, title: activityName });
+    }
+
     // Skip pure forum activities for direct event extraction
     if (activity.classList.contains('modtype_forum')) return;
+
+    // Skip resource activities — they don't have dates, PDFs are handled by Smart Scan
+    if (activity.classList.contains('modtype_resource')) return;
 
     const descEl = activity.querySelector('.activity-description, .activity-altcontent');
     const description = descEl?.textContent?.trim() || '';
@@ -262,7 +268,7 @@ function extractCoursePage(doc, courseCode) {
     }
   });
 
-  return { events, assignmentUrls, forumUrls };
+  return { events, assignmentUrls, forumUrls, pdfUrls };
 }
 
 // ============================================================
@@ -276,16 +282,11 @@ function extractCourseCodeFromTitle(text) {
 }
 
 function extractCourseCodeFromUrl(url) {
-  // Some Moodle URLs include course context, but mostly we extract via title
   return null;
 }
 
 // ============================================================
 // EXTRACT: SINGLE ASSIGNMENT PAGE
-//   URL: https://spectrum.um.edu.my/mod/assign/view.php?id=XXX
-//
-// Assignment pages contain a "Submission status" table with the actual due date
-// and a description that often has more date info.
 // ============================================================
 function extractAssignmentPage(doc, courseCode) {
   const events = [];
@@ -294,7 +295,6 @@ function extractAssignmentPage(doc, courseCode) {
   const titleEl = doc.querySelector('#page-header h1, .page-header-headings h1, h1');
   const title = titleEl?.textContent?.trim() || 'Assignment';
 
-  // Look for "Due date" in the activity-dates region
   const dateBlocks = doc.querySelectorAll(
     '[data-region="activity-dates"] [data-region="activity-date-item"], ' +
     '.activity-date, ' +
@@ -305,7 +305,6 @@ function extractAssignmentPage(doc, courseCode) {
   let foundDate = null;
   dateBlocks.forEach(block => {
     const text = block.textContent.trim();
-    // Match "Due:" or "Closes:" patterns
     const dueMatch = text.match(/(?:Due|Closes|Deadline)[:\s]+(.+?)(?:\n|$)/i);
     if (dueMatch && !foundDate) {
       const parsed = parseDateFromText(dueMatch[1]);
@@ -313,7 +312,6 @@ function extractAssignmentPage(doc, courseCode) {
     }
   });
 
-  // Fallback: parse date from page content
   const mainContent = doc.querySelector('#region-main, [role="main"]')?.textContent || '';
   if (!foundDate) {
     foundDate = parseDateFromText(mainContent);
@@ -336,15 +334,11 @@ function extractAssignmentPage(doc, courseCode) {
 
 // ============================================================
 // EXTRACT: ANNOUNCEMENTS FORUM
-//   URL: https://spectrum.um.edu.my/mod/forum/view.php?id=XXX
-//
-// Forum pages list discussions. We scan the discussion table for date hints.
 // ============================================================
 function extractForumPage(doc, courseCode) {
   const events = [];
   const code = courseCode || 'Unknown';
 
-  // Forum discussion list
   const discussions = doc.querySelectorAll(
     '.discussion-list tr, table.discussionsubject tr, [data-region="discussion-list"] [data-region="post"]'
   );
@@ -356,11 +350,9 @@ function extractForumPage(doc, courseCode) {
     const subject = subjectLink.textContent.trim();
     const sourceUrl = subjectLink.href || '';
 
-    // Try to find a date in the subject
     const date = parseDateFromText(subject);
     if (!date) return;
 
-    // Skip if subject doesn't sound like a deadline announcement
     const lowerSubject = subject.toLowerCase();
     if (!/quiz|test|exam|assign|deadline|due|submit|lab|project|presentation|viva/.test(lowerSubject)) return;
 
@@ -379,7 +371,6 @@ function extractForumPage(doc, courseCode) {
 }
 
 function inferTypeFromComponent(component, title) {
-  // Map Moodle module types to SpectrumX event types
   const componentMap = {
     'mod_quiz': 'quiz',
     'mod_assign': 'assignment',
@@ -392,7 +383,6 @@ function inferTypeFromComponent(component, title) {
   };
   if (componentMap[component]) return componentMap[component];
 
-  // Fallback: infer from title keywords
   const lower = (title || '').toLowerCase();
   if (/\bfinal\s*exam\b|\bmid[\s-]*sem|\bexam\b/.test(lower)) return 'exam';
   if (/\bquiz\b|\btest\b/.test(lower)) return 'quiz';
@@ -405,19 +395,11 @@ function inferTypeFromComponent(component, title) {
 }
 
 /**
- * Parse a date out of free-text. Handles:
- *   "5th April 2026"
- *   "5 April 2026"
- *   "April 5 2026"
- *   "12 June 2026"
- *   "Deadline12 June 2026"  (no space — common typo)
- *   "5/4/2026" (DD/MM/YYYY — Malaysian format)
- *   "2026-04-05" (ISO)
+ * Parse a date out of free-text.
  */
 function parseDateFromText(text) {
   if (!text || typeof text !== 'string') return null;
 
-  // Pattern 1: "5th April 2026" or "5 April 2026"
   const monthName = '(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)';
   const dayMonthYear = new RegExp(
     `(\\d{1,2})(?:st|nd|rd|th)?\\s*(${monthName})\\s*(\\d{4})`,
@@ -429,7 +411,6 @@ function parseDateFromText(text) {
     if (!isNaN(d.getTime())) return d.toISOString();
   }
 
-  // Pattern 2: "Deadline12 June 2026" — date with no space before
   const stuckPattern = new RegExp(
     `(?:deadline|due\\s*date|by|before|on)(\\d{1,2})\\s*(${monthName})\\s*(\\d{4})`,
     'i'
@@ -440,7 +421,6 @@ function parseDateFromText(text) {
     if (!isNaN(d.getTime())) return d.toISOString();
   }
 
-  // Pattern 3: "April 5 2026" or "April 5, 2026"
   const monthDayYear = new RegExp(
     `(${monthName})\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s*(\\d{4})`,
     'i'
@@ -451,14 +431,12 @@ function parseDateFromText(text) {
     if (!isNaN(d.getTime())) return d.toISOString();
   }
 
-  // Pattern 4: DD/MM/YYYY (Malaysian format) or DD-MM-YYYY
   const ddmmyyyy = text.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b/);
   if (ddmmyyyy) {
     const d = new Date(`${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2, '0')}-${ddmmyyyy[1].padStart(2, '0')}T23:59:00`);
     if (!isNaN(d.getTime())) return d.toISOString();
   }
 
-  // Pattern 5: ISO format YYYY-MM-DD
   const iso = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
   if (iso) {
     const d = new Date(`${iso[1]}-${iso[2]}-${iso[3]}T23:59:00`);

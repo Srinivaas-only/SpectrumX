@@ -216,6 +216,208 @@ class DeepScanner {
   delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
+
+  /**
+   * Smart PDF Scan: extract deadlines from PDFs on the current course page.
+   * Uses PDF.js for text extraction, then Z.AI GLM-5.1 for understanding.
+   */
+  async smartScanCurrentCourse(courseUrl, apiKey, onProgress) {
+    this.events = [];
+    this.scannedUrls = [];
+    this.errors = [];
+
+    if (!apiKey) {
+      return {
+        events: [],
+        scannedUrls: [],
+        errors: [{ message: 'Z.AI API key required for Smart Scan' }]
+      };
+    }
+
+    // Step 1: Get the course page to find PDF URLs
+    onProgress?.({ phase: 'discover', message: 'Finding PDFs on course page...' });
+    const courseData = await this.fetchAndParse(courseUrl, 'course');
+    if (!courseData) {
+      try { await chrome.offscreen.closeDocument(); } catch (e) {}
+      return { events: [], scannedUrls: this.scannedUrls, errors: this.errors };
+    }
+
+    const pdfUrls = (courseData.pdfUrls || []).slice(0, 8);
+    const courseCode = courseData.events?.[0]?.courseId ||
+      this.extractCourseFromUrl(courseUrl) || 'Unknown';
+
+    if (pdfUrls.length === 0) {
+      try { await chrome.offscreen.closeDocument(); } catch (e) {}
+      return {
+        events: [],
+        scannedUrls: this.scannedUrls,
+        errors: [{ message: 'No PDFs found on this course page' }]
+      };
+    }
+
+    // Step 2: For each PDF, extract text and send to Z.AI
+    for (let i = 0; i < pdfUrls.length; i++) {
+      const pdf = pdfUrls[i];
+      onProgress?.({
+        phase: 'pdf',
+        message: `Reading PDF ${i + 1}/${pdfUrls.length}: ${pdf.title.substring(0, 30)}...`
+      });
+
+      const extractResult = await chrome.runtime.sendMessage({
+        target: 'offscreen',
+        type: 'EXTRACT_PDF_TEXT',
+        payload: { url: pdf.url }
+      });
+
+      if (!extractResult || !extractResult.success) {
+        this.errors.push({
+          url: pdf.url,
+          message: `Failed to read PDF: ${extractResult?.error || 'unknown'}`
+        });
+        continue;
+      }
+
+      if (!extractResult.text || extractResult.text.length < 100) {
+        continue;
+      }
+
+      onProgress?.({
+        phase: 'ai',
+        message: `AI reading: ${pdf.title.substring(0, 30)}...`
+      });
+
+      const aiEvents = await this.askGlmForDeadlines(
+        apiKey, pdf.title, extractResult.text, pdf.url, courseCode
+      );
+
+      if (aiEvents.length > 0) {
+        this.events.push(...aiEvents);
+      }
+
+      await this.delay(300);
+    }
+
+    try { await chrome.offscreen.closeDocument(); } catch (e) {}
+
+    this.cleanInvalidEvents();
+    this.deduplicateEvents();
+
+    return {
+      events: this.events,
+      scannedUrls: this.scannedUrls,
+      errors: this.errors,
+      pdfsScanned: pdfUrls.length
+    };
+  }
+
+  /**
+   * Send PDF text to Z.AI GLM-5.1 with a structured prompt to extract deadlines.
+   */
+  async askGlmForDeadlines(apiKey, pdfTitle, pdfText, sourceUrl, courseCode) {
+    const maxChars = 12000;
+    const text = pdfText.length > maxChars
+      ? pdfText.substring(0, maxChars) + '\n[... truncated ...]'
+      : pdfText;
+
+    const systemPrompt = `You are a deadline extraction assistant for university students.
+You read PDFs (assignment briefs, project specs, course outlines) and extract submission deadlines.
+
+You return STRICT JSON in this exact format, with no other text:
+{
+  "events": [
+    {
+      "title": "short descriptive title (e.g. 'Group Project Final Report')",
+      "date": "ISO 8601 datetime like 2026-05-28T23:59:00",
+      "type": "assignment|quiz|exam|project|presentation|lab|viva|other",
+      "confidence": "high|medium|low",
+      "description": "brief 1-sentence description"
+    }
+  ]
+}
+
+If no deadlines are found, return: {"events": []}
+
+Rules:
+- Only include events with explicit dates. Don't guess dates from "Week 7" without context.
+- Confidence "high" = explicit date with clear deadline language. "medium" = inferred or ambiguous. "low" = uncertain.
+- Default time to 23:59:00 if no time specified.
+- Today's date for context: ${new Date().toISOString().substring(0, 10)}
+- Year: assume current academic year if year is missing.
+- If PDF is in Bahasa Malaysia, still extract the deadlines (e.g. "Tarikh akhir = deadline").
+- Don't extract lecture dates or meeting dates. ONLY assignment/submission/exam deadlines.
+- Maximum 5 events per PDF.`;
+
+    const userPrompt = `PDF Title: ${pdfTitle}
+Course: ${courseCode}
+
+PDF Content:
+${text}
+
+Extract any submission deadlines, project due dates, exam dates, or assignment deadlines from this PDF. Return JSON only.`;
+
+    try {
+      const response = await fetch('https://api.z.ai/api/paas/v4/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'glm-5.1',
+          max_tokens: 1500,
+          temperature: 0.1,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ]
+        })
+      });
+
+      if (!response.ok) {
+        this.errors.push({ url: sourceUrl, message: `Z.AI error: HTTP ${response.status}` });
+        return [];
+      }
+
+      const data = await response.json();
+      const aiResponse = data.choices?.[0]?.message?.content || '';
+
+      const cleanJson = aiResponse
+        .replace(/```json\s*/gi, '')
+        .replace(/```\s*$/g, '')
+        .trim();
+
+      let parsed;
+      try {
+        parsed = JSON.parse(cleanJson);
+      } catch (e) {
+        this.errors.push({ url: sourceUrl, message: 'AI returned invalid JSON' });
+        return [];
+      }
+
+      const events = (parsed.events || []).map(evt => ({
+        id: `pdf-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        title: evt.title || 'Deadline',
+        courseId: courseCode,
+        type: evt.type || 'assignment',
+        date: evt.date,
+        sourceUrl: sourceUrl,
+        sourceText: `Spectrum > ${courseCode} > ${pdfTitle}`,
+        description: `${evt.description || ''} [AI confidence: ${evt.confidence || 'medium'}]`,
+        aiExtracted: true,
+        confidence: evt.confidence || 'medium'
+      })).filter(e => e.date && e.title);
+
+      return events;
+    } catch (err) {
+      this.errors.push({ url: sourceUrl, message: `AI request failed: ${err.message}` });
+      return [];
+    }
+  }
+
+  extractCourseFromUrl(url) {
+    const idMatch = url.match(/id=(\d+)/);
+    return idMatch ? `Course-${idMatch[1]}` : null;
+  }
 }
 
 if (typeof globalThis !== 'undefined') {
