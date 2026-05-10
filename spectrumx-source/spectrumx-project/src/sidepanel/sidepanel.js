@@ -603,6 +603,39 @@ apiKeyInput.addEventListener('keydown', (e) => {
 });
 
 // ============================================================
+// Listen for DeepScan results from background
+// ============================================================
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'DEEP_SCAN_RESULT') {
+    const { eventsFound, pagesScanned, scanType } = message.payload || {};
+    const label = scanType === 'current-course' ? 'course scan' : 'full DeepScan';
+
+    // Refresh events data so AI has the latest
+    init().then(() => {
+      if (eventsFound > 0) {
+        addAssistantMessage(
+          `🔍 **${label} complete!** Found **${eventsFound} events** across **${pagesScanned} pages**.\n\nYour deadline data is now updated. Ask me anything about your upcoming deadlines!`,
+          events.slice(0, 5)
+        );
+      } else {
+        addAssistantMessage(
+          `🔍 **${label} complete.** No new events found this time. Make sure you're logged into Spectrum and try again.`,
+          []
+        );
+      }
+    });
+  }
+
+  if (message.type === 'DEEP_SCAN_PROGRESS') {
+    const { message: msg } = message.payload || {};
+    // Update subtitle to show progress
+    if (chatSubtitle && msg) {
+      chatSubtitle.textContent = `Scanning: ${msg}`;
+    }
+  }
+});
+
+// ============================================================
 // Boot
 // ============================================================
 init();

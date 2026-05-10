@@ -167,6 +167,17 @@ async function handleMessage(message, sender) {
           });
         }
 
+        // Notify sidepanel/chatbot about the scan result
+        chrome.runtime.sendMessage({
+          type: 'DEEP_SCAN_RESULT',
+          payload: {
+            eventsFound: results.events.length,
+            pagesScanned: results.scannedUrls.length,
+            errors: results.errors,
+            scanType: 'current-course'
+          }
+        }).catch(() => {});
+
         return {
           success: true,
           eventsFound: results.events.length,
@@ -214,6 +225,17 @@ async function handleMessage(message, sender) {
             isDemo: false
           });
         }
+
+        // Notify sidepanel/chatbot about the scan result
+        chrome.runtime.sendMessage({
+          type: 'DEEP_SCAN_RESULT',
+          payload: {
+            eventsFound: results.events.length,
+            pagesScanned: results.scannedUrls.length,
+            errors: results.errors,
+            scanType: 'full'
+          }
+        }).catch(() => {});
 
         return {
           success: true,
