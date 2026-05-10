@@ -1,9 +1,12 @@
 /**
  * SpectrumX Offscreen Document
- * 
+ *
  * Service workers in MV3 don't have access to DOMParser.
- * This offscreen document runs in a normal page context, so it has
- * full DOM access. The background worker delegates HTML parsing here.
+ * This offscreen document runs in a normal page context with full DOM access.
+ * The background worker delegates HTML parsing here.
+ *
+ * Selectors are tuned to UM Spectrum (https://spectrum.um.edu.my/)
+ * which runs Moodle 4.x with the Moove theme.
  */
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -11,7 +14,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'PARSE_HTML') {
     handleParseHtml(message.payload).then(sendResponse);
-    return true; // Keep channel open for async response
+    return true;
   }
 });
 
@@ -31,8 +34,9 @@ async function handleParseHtml({ url, extractType, courseCode }) {
 
     const html = await response.text();
 
-    // Check for login redirect
-    if (html.includes('loginform') || html.includes('Log in to the site') || html.includes('login/index.php')) {
+    // Detect login redirect
+    if (html.includes('loginform') || html.includes('login/index.php') ||
+        html.includes('Log in to the site')) {
       return { success: false, error: 'Not logged in — please log into Spectrum first', url };
     }
 
@@ -41,20 +45,14 @@ async function handleParseHtml({ url, extractType, courseCode }) {
 
     let extracted;
     switch (extractType) {
-      case 'dashboard':
-        extracted = extractDashboard(doc);
-        break;
-      case 'calendar-upcoming':
-        extracted = extractCalendarUpcoming(doc);
+      case 'home':
+        extracted = extractHome(doc);
         break;
       case 'calendar-month':
         extracted = extractCalendarMonth(doc);
         break;
       case 'course':
         extracted = extractCoursePage(doc, courseCode);
-        break;
-      case 'forum':
-        extracted = extractForumPage(doc, courseCode);
         break;
       default:
         extracted = { courses: [], events: [] };
@@ -67,239 +65,188 @@ async function handleParseHtml({ url, extractType, courseCode }) {
 }
 
 // ============================================================
-// EXTRACTORS
+// EXTRACT: HOME PAGE (https://spectrum.um.edu.my/)
+//
+// The Home page contains ALL enrolled courses as cards:
+// <div class="card dashboard-card" data-region="course-content" data-course-id="2447">
+//   <a href="https://spectrum.um.edu.my/course/view.php?id=2447">
+//     <span class="sr-only">GIG1005 SOCIAL ENGAGEMENT</span>
+//     <div class="course-category">University</div>
+//   </a>
+//   <a class="aalink coursename">GIG1005 SOCIAL ENGAGEMENT</a>
+//   <div class="course-summary">Session 2025/2026 Semester 2</div>
+// </div>
 // ============================================================
-
-function extractDashboard(doc) {
+function extractHome(doc) {
   const courses = [];
-  const events = [];
-
-  // Find enrolled courses from course cards
-  const courseCards = doc.querySelectorAll(
-    '[data-region="course-content"] [data-course-id], .coursebox, .course-listitem, .dashboard-card'
-  );
+  const courseCards = doc.querySelectorAll('.dashboard-card[data-course-id]');
 
   courseCards.forEach(card => {
-    const courseId = card.getAttribute('data-course-id');
-    const nameEl = card.querySelector('.coursename a, .course-name a, .multiline a, h4 a, h3 a');
-    const name = nameEl?.textContent?.trim() || '';
-    const url = nameEl?.href || '';
-    const codeMatch = name.match(/([A-Z]{2,4}\d{3,4})/);
+    const moodleId = card.getAttribute('data-course-id');
+    const nameEl = card.querySelector('.coursename');
+    const fullName = nameEl?.textContent?.trim() || '';
+    const url = nameEl?.href || `https://spectrum.um.edu.my/course/view.php?id=${moodleId}`;
+    const categoryEl = card.querySelector('.course-category');
+    const category = categoryEl?.textContent?.trim() || '';
 
-    if (courseId || url.includes('course/view.php')) {
-      courses.push({
-        id: codeMatch ? codeMatch[1] : (courseId || 'Unknown'),
-        name: name.replace(/^[A-Z]{2,4}\d{3,4}\s*[-:]\s*/, '').trim(),
-        moodleId: courseId,
-        url: url || `https://spectrum.um.edu.my/course/view.php?id=${courseId}`
-      });
-    }
+    // Extract course code (e.g., "WIA1006/WID3006" or "GIG1005")
+    const codeMatch = fullName.match(/^([A-Z]{2,4}\d{3,4}(?:\/[A-Z]{2,4}\d{3,4})?)/);
+    const courseCode = codeMatch ? codeMatch[1] : `Course-${moodleId}`;
+    const courseName = codeMatch ? fullName.replace(codeMatch[0], '').trim() : fullName;
+
+    courses.push({
+      id: courseCode,
+      name: courseName,
+      moodleId: moodleId,
+      url: url,
+      category: category
+    });
   });
 
-  // Also check nav drawer
-  const navLinks = doc.querySelectorAll(
-    '.nav-drawer a[href*="course/view.php"], #nav-drawer a[href*="course/view.php"], [data-key="mycourses"] a[href*="course/view.php"]'
-  );
-
-  navLinks.forEach(link => {
-    const name = link.textContent.trim();
-    const url = link.href;
-    const idMatch = url.match(/id=(\d+)/);
-    const codeMatch = name.match(/([A-Z]{2,4}\d{3,4})/);
-
-    if (idMatch && !courses.find(c => c.moodleId === idMatch[1])) {
-      courses.push({
-        id: codeMatch ? codeMatch[1] : `Course-${idMatch[1]}`,
-        name: name.replace(/^[A-Z]{2,4}\d{3,4}\s*[-:]\s*/, '').trim(),
-        moodleId: idMatch[1],
-        url: url
-      });
-    }
-  });
-
-  // Extract timeline events
-  const timelineItems = doc.querySelectorAll(
-    '[data-region="timeline"] [data-region="event-list-item"], [data-region="event-list-content"] li, .block_timeline .event-list-item'
-  );
-
-  timelineItems.forEach(item => {
-    const titleEl = item.querySelector('a, .event-name-container a, .event-name a');
-    const dateEl = item.querySelector('[data-region="event-item-date"], time, .date, .text-muted');
-    const courseEl = item.querySelector('.event-name-container small, .event-course, .text-muted:last-child');
-
-    if (titleEl) {
-      events.push({
-        title: titleEl.textContent.trim(),
-        courseId: extractCourseCode(courseEl?.textContent || ''),
-        type: inferType(titleEl.textContent),
-        date: extractDate(dateEl || item),
-        sourceUrl: titleEl.href || 'https://spectrum.um.edu.my/my/',
-        sourceText: 'Spectrum > Dashboard > Timeline',
-        description: ''
-      });
-    }
-  });
-
-  return { courses, events };
+  return { courses, events: [] };
 }
 
-function extractCalendarUpcoming(doc) {
-  const events = [];
-  const eventItems = doc.querySelectorAll(
-    '.event, [data-event-id], .calendar_event_course, .calendar_event_user'
-  );
-
-  eventItems.forEach(item => {
-    const titleEl = item.querySelector('a[data-action="view-event"], .referer a, .eventname a, h3 a');
-    const dateEl = item.querySelector('.col-11, .date, time, [data-timestamp]');
-    const courseEl = item.querySelector('.course, .text-muted, small');
-
-    if (titleEl) {
-      events.push({
-        title: titleEl.textContent.trim(),
-        courseId: extractCourseCode(courseEl?.textContent || item.textContent),
-        type: inferType(titleEl.textContent),
-        date: extractDate(dateEl || item),
-        sourceUrl: titleEl.href || 'https://spectrum.um.edu.my/calendar/view.php?view=upcoming',
-        sourceText: 'Spectrum > Calendar > Upcoming',
-        description: ''
-      });
-    }
-  });
-
-  return { events };
-}
-
+// ============================================================
+// EXTRACT: CALENDAR MONTH VIEW
+//   URL: https://spectrum.um.edu.my/calendar/view.php?view=month
+//
+// Calendar structure on UM Spectrum:
+// <td class="day" data-day-timestamp="1777996800" data-region="day">
+//   <div data-region="day-content">
+//     <ul>
+//       <li data-region="event-item"
+//           data-event-component="mod_quiz"
+//           data-event-eventtype="open|close|due">
+//         <a data-action="view-event"
+//            data-event-id="1159727"
+//            href="https://spectrum.um.edu.my/mod/quiz/view.php?id=1093664"
+//            title="20252026-2 Mid Term Quiz opens">
+//           <span class="eventname">20252026-2 Mid Term Quiz opens</span>
+//         </a>
+//       </li>
+//     </ul>
+//   </div>
+// </td>
+// ============================================================
 function extractCalendarMonth(doc) {
   const events = [];
-  const dayLinks = doc.querySelectorAll(
-    '.calendar_event_course, .calendar_event_category, [data-event-title], a[data-action="view-event"]'
-  );
+  const dayCells = doc.querySelectorAll('td.day[data-region="day"][data-day-timestamp]');
 
-  dayLinks.forEach(link => {
-    const title = link.getAttribute('data-event-title') || link.textContent.trim();
-    const href = link.href || '';
+  dayCells.forEach(cell => {
+    const timestamp = parseInt(cell.getAttribute('data-day-timestamp'));
+    if (!timestamp || isNaN(timestamp)) return;
 
-    if (title && title.length > 2) {
+    const dayDate = new Date(timestamp * 1000);
+    if (isNaN(dayDate.getTime())) return;
+
+    const eventItems = cell.querySelectorAll('li[data-region="event-item"]');
+
+    eventItems.forEach(item => {
+      const link = item.querySelector('a[data-action="view-event"]');
+      if (!link) return;
+
+      const title = link.getAttribute('title')?.trim() ||
+                    item.querySelector('.eventname')?.textContent?.trim() || '';
+      const sourceUrl = link.getAttribute('href') || '';
+      const eventComponent = item.getAttribute('data-event-component') || '';
+      const eventType = item.getAttribute('data-event-eventtype') || '';
+
+      // Skip pure attendance markers — they're not deadlines
+      if (eventComponent === 'mod_attendance' && eventType === 'attendance') return;
+
+      // Extract course code from title or URL
+      const courseId = extractCourseCodeFromTitle(title) ||
+                       extractCourseCodeFromUrl(sourceUrl) || 'Unknown';
+
       events.push({
         title: title,
-        courseId: extractCourseCode(link.closest('td, div')?.textContent || ''),
-        type: inferType(title),
-        date: extractDate(link),
-        sourceUrl: href || 'https://spectrum.um.edu.my/calendar/view.php?view=month',
-        sourceText: 'Spectrum > Calendar',
-        description: ''
+        courseId: courseId,
+        type: inferTypeFromComponent(eventComponent, title),
+        date: dayDate.toISOString(),
+        sourceUrl: sourceUrl,
+        sourceText: `Spectrum > Calendar > ${title}`,
+        description: `${eventType ? `Event type: ${eventType}` : ''}`,
+        eventComponent: eventComponent,
+        eventType: eventType
       });
-    }
+    });
   });
 
   return { events };
 }
 
+// ============================================================
+// EXTRACT: COURSE PAGE (https://spectrum.um.edu.my/course/view.php?id=XXX)
+//
+// Course pages contain activity items:
+// <li class="activity activity-wrapper assign modtype_assign" data-id="1080255">
+//   <div class="activity-item" data-activityname="Individual Assignment Due Date 5th April 2026">
+//     <a href="https://spectrum.um.edu.my/mod/assign/view.php?id=1080255">
+//       <span class="instancename">Individual Assignment Due Date 5th April 2026</span>
+//     </a>
+//     <div class="activity-altcontent activity-description">
+//       <!-- Description text often contains date keywords -->
+//     </div>
+//   </div>
+// </li>
+//
+// Activity types we care about:
+//   modtype_assign       → assignment
+//   modtype_quiz         → quiz
+//   modtype_forum        → forum (often has announcements)
+//   modtype_workshop     → workshop
+//   modtype_lesson       → lesson
+//   modtype_choice       → choice
+//   modtype_attendance   → IGNORED (just attendance markers)
+// ============================================================
 function extractCoursePage(doc, courseCode) {
   const events = [];
-  const forumUrls = [];
-  const code = courseCode || extractCourseCode(doc.title);
+  const code = courseCode || extractCourseCodeFromTitle(doc.title) || 'Unknown';
 
-  // Strategy 1: Find activities with date info
+  // Find activities that could be deadline-bearing
   const activities = doc.querySelectorAll(
-    '.activity, .activity-item, [data-activityname], li.modtype_assign, li.modtype_quiz, li.modtype_forum'
+    'li.modtype_assign, li.modtype_quiz, li.modtype_workshop, li.modtype_lesson, li.modtype_choice'
   );
 
   activities.forEach(activity => {
-    const nameEl = activity.querySelector('.activityname a, .activity-name a, .aalink, .instancename');
-    const dateEl = activity.querySelector('.activity-dates, [data-region="activity-dates"], .text-muted, .description .text-info');
+    const activityCard = activity.querySelector('[data-activityname]');
+    if (!activityCard) return;
 
-    if (nameEl) {
-      const activityName = nameEl.textContent.trim();
-      const activityUrl = nameEl.href || '';
-      const dateText = dateEl?.textContent || '';
+    const activityName = activityCard.getAttribute('data-activityname')?.trim() || '';
+    if (!activityName) return;
 
-      const dateMatch = dateText.match(/(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}|\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2})/i);
-      const dueMatch = dateText.match(/(?:Due|Closes|Close|Deadline|Opens):\s*(.+?)(?:\n|$|,\s*(?:Due|Closes|Opens))/i);
+    const link = activity.querySelector('.instancename')?.closest('a') ||
+                 activity.querySelector('a.aalink');
+    const sourceUrl = link?.href || '';
 
-      if (dateMatch || dueMatch) {
-        events.push({
-          title: activityName,
-          courseId: code,
-          type: inferType(activityName + ' ' + (activity.className || '')),
-          date: dueMatch ? parseDateString(dueMatch[1].trim()) : parseDateString(dateMatch[1]),
-          sourceUrl: activityUrl,
-          sourceText: `Spectrum > ${code} > ${activityName}`,
-          description: dateText.trim()
-        });
-      }
+    // Extract description for date hints
+    const descEl = activity.querySelector('.activity-description, .activity-altcontent');
+    const description = descEl?.textContent?.trim() || '';
 
-      // Track forum URLs for announcement scanning
-      if ((activity.classList.contains('modtype_forum') || activity.className.includes('forum')) && forumUrls.length < 2) {
-        if (activityUrl) forumUrls.push(activityUrl);
-      }
-    }
-  });
+    // Determine type from class
+    let type = 'other';
+    if (activity.classList.contains('modtype_assign')) type = 'assignment';
+    else if (activity.classList.contains('modtype_quiz')) type = 'quiz';
+    else if (activity.classList.contains('modtype_workshop')) type = 'project';
+    else if (activity.classList.contains('modtype_lesson')) type = 'tutorial';
 
-  // Strategy 2: Date blocks
-  const dateBlocks = doc.querySelectorAll(
-    '[data-region="activity-dates"] [data-region="activity-date-item"], .activity-date-item'
-  );
+    // Try to extract a date from the activity name OR description
+    // UM lecturers commonly embed dates in activity names like:
+    //   "Individual Assignment Due Date 5th April 2026"
+    //   "Group Project: Submission Deadline12 June 2026"
+    const date = parseDateFromText(activityName) || parseDateFromText(description);
 
-  dateBlocks.forEach(block => {
-    const text = block.textContent.trim();
-    const match = text.match(/(?:Due|Closes|Opens|Deadline):\s*(.+)/i);
-    if (match) {
-      const pageTitle = doc.querySelector('#page-header h1, .page-header-headings h1');
+    if (date) {
       events.push({
-        title: pageTitle?.textContent?.trim() || 'Activity',
+        title: activityName,
         courseId: code,
-        type: inferType(text),
-        date: parseDateString(match[1].trim()),
-        sourceUrl: '',
-        sourceText: `Spectrum > ${code}`,
-        description: text
+        type: type,
+        date: date,
+        sourceUrl: sourceUrl,
+        sourceText: `Spectrum > ${code} > ${activityName}`,
+        description: description.substring(0, 200)
       });
     }
-  });
-
-  return { events, forumUrls };
-}
-
-function extractForumPage(doc, courseCode) {
-  const events = [];
-  const code = courseCode || 'Unknown';
-
-  const posts = doc.querySelectorAll(
-    '.forumpost, .forum-post-container, [data-region="post"]'
-  );
-
-  posts.forEach(post => {
-    const subjectEl = post.querySelector('.subject a, .discussion-name a, .post-header a');
-    const contentEl = post.querySelector('.posting, .post-content-container, .post-content');
-    const content = contentEl?.textContent || '';
-    const subject = subjectEl?.textContent?.trim() || '';
-
-    const datePatterns = [
-      /(?:quiz|test|exam|viva|presentation|submission|deadline|due|assignment|lab)\s*(?:\d+\s*)?(?:[-:—]\s*)?(\d{1,2}\s*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*\d{2,4})/gi,
-      /(\d{1,2}\s*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*\d{2,4})\s*[-:—]?\s*(?:quiz|test|exam|viva|presentation|submission|deadline|due|assignment|lab)/gi,
-      /(?:due|deadline|submit|submission)\s*(?:date|by|before|on)?\s*[:—]?\s*(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/gi,
-    ];
-
-    datePatterns.forEach(pattern => {
-      let match;
-      while ((match = pattern.exec(content)) !== null) {
-        const surroundingStart = Math.max(0, match.index - 80);
-        const surroundingEnd = Math.min(content.length, match.index + match[0].length + 80);
-        const surrounding = content.substring(surroundingStart, surroundingEnd).trim();
-
-        events.push({
-          title: subject || extractTitleFromContext(surrounding),
-          courseId: code,
-          type: inferType(surrounding),
-          date: parseDateString(match[1]),
-          sourceUrl: subjectEl?.href || '',
-          sourceText: `Spectrum > ${code} > Announcements`,
-          description: surrounding.substring(0, 200)
-        });
-      }
-    });
   });
 
   return { events };
@@ -309,64 +256,103 @@ function extractForumPage(doc, courseCode) {
 // HELPERS
 // ============================================================
 
-function extractCourseCode(text) {
-  if (!text) return 'Unknown';
-  const match = text.match(/([A-Z]{2,4}\d{3,4})/);
-  return match ? match[1] : 'Unknown';
-}
-
-function extractDate(element) {
-  if (!element) return null;
-
-  const ts = element.getAttribute?.('data-timestamp') ||
-    element.querySelector?.('[data-timestamp]')?.getAttribute('data-timestamp');
-  if (ts) return new Date(parseInt(ts) * 1000).toISOString();
-
-  const timeEl = element.tagName === 'TIME' ? element : element.querySelector?.('time');
-  if (timeEl?.dateTime) return new Date(timeEl.dateTime).toISOString();
-  if (timeEl?.getAttribute?.('datetime')) return new Date(timeEl.getAttribute('datetime')).toISOString();
-
-  return parseDateString(element.textContent?.trim() || '');
-}
-
-function parseDateString(text) {
+function extractCourseCodeFromTitle(text) {
   if (!text) return null;
-  const cleaned = text
-    .replace(/,\s*/g, ' ')
-    .replace(/\s+/g, ' ')
-    .replace(/(\d{1,2})(st|nd|rd|th)/gi, '$1')
-    .trim();
+  const match = text.match(/([A-Z]{2,4}\d{3,4})/);
+  return match ? match[1] : null;
+}
 
-  const date = new Date(cleaned);
-  if (!isNaN(date.getTime())) return date.toISOString();
-
-  // Try DD/MM/YYYY format
-  const ddmmyyyy = cleaned.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
-  if (ddmmyyyy) {
-    const year = ddmmyyyy[3].length === 2 ? '20' + ddmmyyyy[3] : ddmmyyyy[3];
-    const d = new Date(`${year}-${ddmmyyyy[2].padStart(2, '0')}-${ddmmyyyy[1].padStart(2, '0')}`);
-    if (!isNaN(d.getTime())) return d.toISOString();
-  }
-
+function extractCourseCodeFromUrl(url) {
+  // Some Moodle URLs include course context, but mostly we extract via title
   return null;
 }
 
-function inferType(text) {
-  const lower = (text || '').toLowerCase();
+function inferTypeFromComponent(component, title) {
+  // Map Moodle module types to SpectrumX event types
+  const componentMap = {
+    'mod_quiz': 'quiz',
+    'mod_assign': 'assignment',
+    'mod_workshop': 'project',
+    'mod_lesson': 'tutorial',
+    'mod_choice': 'other',
+    'mod_forum': 'other',
+    'mod_attendance': 'tutorial',
+    'mod_feedback': 'other'
+  };
+  if (componentMap[component]) return componentMap[component];
+
+  // Fallback: infer from title keywords
+  const lower = (title || '').toLowerCase();
   if (/\bfinal\s*exam\b|\bmid[\s-]*sem|\bexam\b/.test(lower)) return 'exam';
   if (/\bquiz\b|\btest\b/.test(lower)) return 'quiz';
   if (/\blab\b/.test(lower)) return 'lab';
   if (/\bviva\b/.test(lower)) return 'viva';
   if (/\bpresent/.test(lower)) return 'presentation';
   if (/\bproject\b/.test(lower)) return 'project';
-  if (/\bassign|\bsubmission|\bsubmit|\breport\b|\bhomework/.test(lower)) return 'assignment';
-  if (/\btutorial\b/.test(lower)) return 'tutorial';
-  if (/modtype_quiz/.test(lower)) return 'quiz';
-  if (/modtype_assign/.test(lower)) return 'assignment';
+  if (/\bassign|\bsubmission|\bsubmit|\bdue\b|\bdeadline/.test(lower)) return 'assignment';
   return 'other';
 }
 
-function extractTitleFromContext(text) {
-  const match = text.match(/(quiz|test|exam|viva|presentation|lab|assignment|project)\s*\d*/i);
-  return match ? match[0].trim() : text.substring(0, 60).trim();
+/**
+ * Parse a date out of free-text. Handles:
+ *   "5th April 2026"
+ *   "5 April 2026"
+ *   "April 5 2026"
+ *   "12 June 2026"
+ *   "Deadline12 June 2026"  (no space — common typo)
+ *   "5/4/2026" (DD/MM/YYYY — Malaysian format)
+ *   "2026-04-05" (ISO)
+ */
+function parseDateFromText(text) {
+  if (!text || typeof text !== 'string') return null;
+
+  // Pattern 1: "5th April 2026" or "5 April 2026"
+  const monthName = '(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)';
+  const dayMonthYear = new RegExp(
+    `(\\d{1,2})(?:st|nd|rd|th)?\\s*(${monthName})\\s*(\\d{4})`,
+    'i'
+  );
+  let match = text.match(dayMonthYear);
+  if (match) {
+    const d = new Date(`${match[2]} ${match[1]}, ${match[3]} 23:59`);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+
+  // Pattern 2: "Deadline12 June 2026" — date with no space before
+  const stuckPattern = new RegExp(
+    `(?:deadline|due\\s*date|by|before|on)(\\d{1,2})\\s*(${monthName})\\s*(\\d{4})`,
+    'i'
+  );
+  match = text.match(stuckPattern);
+  if (match) {
+    const d = new Date(`${match[2]} ${match[1]}, ${match[3]} 23:59`);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+
+  // Pattern 3: "April 5 2026" or "April 5, 2026"
+  const monthDayYear = new RegExp(
+    `(${monthName})\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s*(\\d{4})`,
+    'i'
+  );
+  match = text.match(monthDayYear);
+  if (match) {
+    const d = new Date(`${match[1]} ${match[2]}, ${match[3]} 23:59`);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+
+  // Pattern 4: DD/MM/YYYY (Malaysian format) or DD-MM-YYYY
+  const ddmmyyyy = text.match(/\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})\b/);
+  if (ddmmyyyy) {
+    const d = new Date(`${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2, '0')}-${ddmmyyyy[1].padStart(2, '0')}T23:59:00`);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+
+  // Pattern 5: ISO format YYYY-MM-DD
+  const iso = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (iso) {
+    const d = new Date(`${iso[1]}-${iso[2]}-${iso[3]}T23:59:00`);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+
+  return null;
 }

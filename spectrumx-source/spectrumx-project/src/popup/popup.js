@@ -352,7 +352,7 @@ document.getElementById('deepScanBtn').addEventListener('click', async () => {
   const progressListener = (message) => {
     if (message.type === 'DEEP_SCAN_PROGRESS') {
       const { phase, message: msg } = message.payload;
-      const phases = { dashboard: 15, calendar: 35, courses: 70 };
+      const phases = { home: 15, calendar: 35, courses: 70 };
       const pct = phases[phase] || 50;
       scanBar.style.width = pct + '%';
       scanText.textContent = msg;
