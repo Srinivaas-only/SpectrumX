@@ -355,10 +355,6 @@ body {
   align-items: center;
   gap: 8px;
   padding: 10px 0 6px;
-  position: sticky;
-  top: 0;
-  background: var(--bg-primary);
-  z-index: 5;
   animation: card-appear 0.3s ease both;
 }
 
