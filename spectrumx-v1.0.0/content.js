@@ -1373,7 +1373,12 @@
   // Spotlight Search — Cmd/Ctrl+K command palette
   // ============================================================
 
+  /**
+   * Inject the Spotlight overlay into the page.
+   * Listens for Cmd/Ctrl+K to show it.
+   */
   function injectSpotlight() {
+    // Don't double-inject
     if (document.getElementById('spectrumx-spotlight')) return;
 
     const overlay = document.createElement('div');
@@ -1386,50 +1391,116 @@
             <circle cx="11" cy="11" r="8"/>
             <path d="M21 21l-4.35-4.35"/>
           </svg>
-          <input type="text" id="spectrumx-spotlight-input" class="spectrumx-spotlight-input" placeholder="Search deadlines, courses, anything..." autocomplete="off" spellcheck="false">
+          <input
+            type="text"
+            id="spectrumx-spotlight-input"
+            class="spectrumx-spotlight-input"
+            placeholder="Search deadlines, courses, anything..."
+            autocomplete="off"
+            spellcheck="false"
+          >
           <kbd class="spectrumx-spotlight-kbd">ESC</kbd>
         </div>
-        <div class="spectrumx-spotlight-results" id="spectrumx-spotlight-results"></div>
+        <div class="spectrumx-spotlight-results" id="spectrumx-spotlight-results">
+        </div>
         <div class="spectrumx-spotlight-footer">
-          <span class="spectrumx-spotlight-hint"><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
-          <span class="spectrumx-spotlight-hint"><kbd>↵</kbd> Open</span>
-          <span class="spectrumx-spotlight-hint"><kbd>ESC</kbd> Close</span>
+          <span class="spectrumx-spotlight-hint">
+            <kbd>↑</kbd><kbd>↓</kbd> Navigate
+          </span>
+          <span class="spectrumx-spotlight-hint">
+            <kbd>↵</kbd> Open
+          </span>
+          <span class="spectrumx-spotlight-hint">
+            <kbd>ESC</kbd> Close
+          </span>
           <span class="spectrumx-spotlight-brand">⚡ SpectrumX</span>
         </div>
       </div>
     `;
     document.body.appendChild(overlay);
+
+    // Setup event listeners
     setupSpotlightHandlers();
   }
 
+  /**
+   * Setup all spotlight event handlers (keyboard, click, search).
+   */
   function setupSpotlightHandlers() {
     const overlay = document.getElementById('spectrumx-spotlight');
     const input = document.getElementById('spectrumx-spotlight-input');
     const results = document.getElementById('spectrumx-spotlight-results');
+
     let selectedIndex = 0;
     let currentResults = [];
 
+    // Open with Cmd/Ctrl + K
     document.addEventListener('keydown', (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); openSpotlight(); }
-      if (e.key === 'Escape' && overlay.classList.contains('active')) closeSpotlight();
+      const isCmdK = (e.metaKey || e.ctrlKey) && e.key === 'k';
+      if (isCmdK) {
+        e.preventDefault();
+        openSpotlight();
+      }
+
+      // Close with ESC if open
+      if (e.key === 'Escape' && overlay.classList.contains('active')) {
+        closeSpotlight();
+      }
     });
 
+    // Backdrop click closes
     overlay.querySelector('[data-action="close"]').addEventListener('click', closeSpotlight);
 
-    input.addEventListener('input', () => { selectedIndex = 0; renderResults(); });
-
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowDown') { e.preventDefault(); selectedIndex = Math.min(selectedIndex + 1, currentResults.length - 1); updateSelection(); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); selectedIndex = Math.max(selectedIndex - 1, 0); updateSelection(); }
-      else if (e.key === 'Enter') { e.preventDefault(); const s = currentResults[selectedIndex]; if (s) openResult(s); }
+    // Input typing → search
+    input.addEventListener('input', () => {
+      selectedIndex = 0;
+      renderResults();
     });
 
-    async function openSpotlight() { overlay.classList.add('active'); input.value = ''; selectedIndex = 0; await renderResults(); setTimeout(() => input.focus(), 50); }
-    function closeSpotlight() { overlay.classList.remove('active'); input.blur(); }
+    // Keyboard navigation in results
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        selectedIndex = Math.min(selectedIndex + 1, currentResults.length - 1);
+        updateSelection();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        selectedIndex = Math.max(selectedIndex - 1, 0);
+        updateSelection();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const selected = currentResults[selectedIndex];
+        if (selected) openResult(selected);
+      }
+    });
 
+    async function openSpotlight() {
+      overlay.classList.add('active');
+      input.value = '';
+      selectedIndex = 0;
+      await renderResults();
+      setTimeout(() => input.focus(), 50);
+    }
+
+    function closeSpotlight() {
+      overlay.classList.remove('active');
+      input.blur();
+    }
+
+    /**
+     * Build the full searchable dataset.
+     */
     async function getSearchableItems() {
-      let events = [], courses = [];
-      try { const d = await chrome.storage.local.get(['events', 'courses']); events = d.events || []; courses = d.courses || []; } catch (e) {}
+      let events = [];
+      let courses = [];
+
+      try {
+        const data = await chrome.storage.local.get(['events', 'courses']);
+        events = data.events || [];
+        courses = data.courses || [];
+      } catch (e) {}
+
+      // Quick links — Spectrum's standard pages
       const quickLinks = [
         { type: 'link', title: 'Dashboard', subtitle: 'Your Spectrum dashboard', url: 'https://spectrum.um.edu.my/my/', icon: '🏠' },
         { type: 'link', title: 'My Courses', subtitle: 'All enrolled courses', url: 'https://spectrum.um.edu.my/my/courses.php', icon: '📚' },
@@ -1440,40 +1511,455 @@
         { type: 'link', title: 'Private Files', subtitle: 'Your uploaded files', url: 'https://spectrum.um.edu.my/user/files.php', icon: '📁' },
         { type: 'link', title: 'Preferences', subtitle: 'Account settings', url: 'https://spectrum.um.edu.my/user/preferences.php', icon: '⚙️' }
       ];
+
+      // Map events to search items
       const eventItems = events.map(evt => {
-        const d = new Date(evt.date); const ds = d.toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' });
-        return { type: 'event', title: evt.title, subtitle: `${evt.courseId || ''} · ${ds}`, url: evt.sourceUrl, icon: getEventEmoji(evt.type), date: evt.date, eventType: evt.type };
+        const eventDate = new Date(evt.date);
+        const dateStr = eventDate.toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' });
+        return {
+          type: 'event',
+          title: evt.title,
+          subtitle: `${evt.courseId || ''} · ${dateStr}`,
+          url: evt.sourceUrl,
+          icon: getEventEmoji(evt.type),
+          date: evt.date,
+          eventType: evt.type
+        };
       });
-      const courseItems = courses.map(c => ({ type: 'course', title: c.name ? `${c.id} ${c.name}` : c.id, subtitle: c.category || 'Course', url: c.url || `https://spectrum.um.edu.my/course/view.php?id=${c.moodleId}`, icon: '📖' }));
+
+      // Map courses to search items
+      const courseItems = courses.map(c => ({
+        type: 'course',
+        title: c.name ? `${c.id} ${c.name}` : c.id,
+        subtitle: c.category || 'Course',
+        url: c.url || `https://spectrum.um.edu.my/course/view.php?id=${c.moodleId}`,
+        icon: '📖'
+      }));
+
       return [...eventItems, ...courseItems, ...quickLinks];
     }
 
-    function getEventEmoji(type) { const m = { exam: '📝', quiz: '❓', assignment: '📄', lab: '🔬', viva: '🎤', presentation: '📊', project: '🏗️', tutorial: '📚', other: '📌' }; return m[type] || '📌'; }
+    function getEventEmoji(type) {
+      const map = {
+        exam: '📝', quiz: '❓', assignment: '📄', lab: '🔬',
+        viva: '🎤', presentation: '📊', project: '🏗️',
+        tutorial: '📚', other: '📌'
+      };
+      return map[type] || '📌';
+    }
 
+    /**
+     * Fuzzy match score. Higher = better match.
+     */
     function fuzzyScore(query, target) {
-      if (!query) return 1; query = query.toLowerCase(); target = target.toLowerCase();
-      if (target.includes(query)) return 1000 - target.indexOf(query);
-      let qi = 0, score = 0, lastIdx = -1;
-      for (let ti = 0; ti < target.length && qi < query.length; ti++) { if (target[ti] === query[qi]) { score += 10; if (lastIdx >= 0 && ti - lastIdx === 1) score += 5; lastIdx = ti; qi++; } }
-      return qi < query.length ? 0 : score;
+      if (!query) return 1;
+      query = query.toLowerCase();
+      target = target.toLowerCase();
+
+      // Exact substring is the best
+      if (target.includes(query)) {
+        return 1000 - target.indexOf(query);
+      }
+
+      // Fuzzy: all chars must appear in order
+      let qi = 0;
+      let score = 0;
+      let lastIdx = -1;
+      for (let ti = 0; ti < target.length && qi < query.length; ti++) {
+        if (target[ti] === query[qi]) {
+          score += 10;
+          if (lastIdx >= 0 && ti - lastIdx === 1) score += 5;
+          lastIdx = ti;
+          qi++;
+        }
+      }
+      if (qi < query.length) return 0;
+      return score;
     }
 
+    /**
+     * Render results based on current query.
+     */
     async function renderResults() {
-      const query = input.value.trim(); const items = await getSearchableItems();
-      const scored = items.map(item => { const ts = fuzzyScore(query, item.title); const ss = fuzzyScore(query, item.subtitle || '') * 0.5; return { item, score: Math.max(ts, ss) }; }).filter(x => x.score > 0);
+      const query = input.value.trim();
+      const items = await getSearchableItems();
+
+      // Score and filter
+      const scored = items.map(item => {
+        const titleScore = fuzzyScore(query, item.title);
+        const subtitleScore = fuzzyScore(query, item.subtitle || '') * 0.5;
+        const score = Math.max(titleScore, subtitleScore);
+        return { item, score };
+      }).filter(x => x.score > 0);
+
+      // Sort by score
       scored.sort((a, b) => b.score - a.score);
+
+      // Limit to top 20
       currentResults = scored.slice(0, 20).map(x => x.item);
-      if (currentResults.length === 0) { results.innerHTML = `<div class="spectrumx-spotlight-empty"><div class="spectrumx-spotlight-empty-icon">🔍</div><div class="spectrumx-spotlight-empty-text">No results for "${escapeHtml(query)}"</div><div class="spectrumx-spotlight-empty-hint">Try DeepScan to find more events</div></div>`; return; }
-      const groups = { event: [], course: [], link: [] }; currentResults.forEach(item => { if (groups[item.type]) groups[item.type].push(item); });
-      let html = ''; const gl = { event: 'Deadlines', course: 'Courses', link: 'Quick Links' }; let ri = 0;
-      ['event', 'course', 'link'].forEach(type => { const gi = groups[type]; if (!gi.length) return; html += `<div class="spectrumx-spotlight-group-label">${gl[type]}</div>`; gi.forEach(item => { html += `<div class="spectrumx-spotlight-result ${ri === selectedIndex ? 'selected' : ''}" data-idx="${ri}"><span class="spectrumx-spotlight-result-icon">${item.icon}</span><div class="spectrumx-spotlight-result-content"><div class="spectrumx-spotlight-result-title">${escapeHtml(item.title)}</div><div class="spectrumx-spotlight-result-subtitle">${escapeHtml(item.subtitle || '')}</div></div><span class="spectrumx-spotlight-result-type">${type}</span></div>`; ri++; }); });
+
+      if (currentResults.length === 0) {
+        results.innerHTML = `
+          <div class="spectrumx-spotlight-empty">
+            <div class="spectrumx-spotlight-empty-icon">🔍</div>
+            <div class="spectrumx-spotlight-empty-text">No results for "${escapeHtml(query)}"</div>
+            <div class="spectrumx-spotlight-empty-hint">Try DeepScan to find more events</div>
+          </div>
+        `;
+        return;
+      }
+
+      // Group by type
+      const groups = { event: [], course: [], link: [] };
+      currentResults.forEach(item => {
+        if (groups[item.type]) groups[item.type].push(item);
+      });
+
+      let html = '';
+      const groupLabels = {
+        event: 'Deadlines',
+        course: 'Courses',
+        link: 'Quick Links'
+      };
+
+      let runningIndex = 0;
+      ['event', 'course', 'link'].forEach(type => {
+        const groupItems = groups[type];
+        if (groupItems.length === 0) return;
+
+        html += `<div class="spectrumx-spotlight-group-label">${groupLabels[type]}</div>`;
+        groupItems.forEach(item => {
+          const isSelected = runningIndex === selectedIndex;
+          html += `
+            <div class="spectrumx-spotlight-result ${isSelected ? 'selected' : ''}" data-idx="${runningIndex}">
+              <span class="spectrumx-spotlight-result-icon">${item.icon}</span>
+              <div class="spectrumx-spotlight-result-content">
+                <div class="spectrumx-spotlight-result-title">${escapeHtml(item.title)}</div>
+                <div class="spectrumx-spotlight-result-subtitle">${escapeHtml(item.subtitle || '')}</div>
+              </div>
+              <span class="spectrumx-spotlight-result-type">${type}</span>
+            </div>
+          `;
+          runningIndex++;
+        });
+      });
+
       results.innerHTML = html;
-      results.querySelectorAll('.spectrumx-spotlight-result').forEach(el => { el.addEventListener('click', () => { const idx = parseInt(el.dataset.idx); if (currentResults[idx]) openResult(currentResults[idx]); }); el.addEventListener('mouseenter', () => { selectedIndex = parseInt(el.dataset.idx); updateSelection(); }); });
+
+      // Click handlers
+      results.querySelectorAll('.spectrumx-spotlight-result').forEach(el => {
+        el.addEventListener('click', () => {
+          const idx = parseInt(el.dataset.idx);
+          if (currentResults[idx]) openResult(currentResults[idx]);
+        });
+        el.addEventListener('mouseenter', () => {
+          selectedIndex = parseInt(el.dataset.idx);
+          updateSelection();
+        });
+      });
     }
 
-    function updateSelection() { results.querySelectorAll('.spectrumx-spotlight-result').forEach((el, idx) => { el.classList.toggle('selected', idx === selectedIndex); }); const s = results.querySelector('.spectrumx-spotlight-result.selected'); if (s) s.scrollIntoView({ block: 'nearest' }); }
-    function openResult(item) { if (item.url) window.location.href = item.url; closeSpotlight(); }
-    function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
+    function updateSelection() {
+      results.querySelectorAll('.spectrumx-spotlight-result').forEach((el, idx) => {
+        el.classList.toggle('selected', idx === selectedIndex);
+      });
+      const selected = results.querySelector('.spectrumx-spotlight-result.selected');
+      if (selected) selected.scrollIntoView({ block: 'nearest' });
+    }
+
+    function openResult(item) {
+      if (item.url) {
+        window.location.href = item.url;
+      }
+      closeSpotlight();
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  }
+
+  // ============================================================
+  // Forum TL;DR — AI summarization for forum discussions
+  // ============================================================
+
+  /**
+   * Inject the AI summary button on Moodle forum discussion pages.
+   * Only runs on URLs matching /mod/forum/discuss.php
+   */
+  function injectForumSummary() {
+    if (!window.location.pathname.includes('/mod/forum/discuss.php')) return;
+    if (document.getElementById('spectrumx-summary-btn')) return;
+
+    const header = document.querySelector('#page-header, .page-header-headings, h1');
+    if (!header) return;
+
+    const posts = document.querySelectorAll(
+      '.forumpost, .forum-post-container, [data-region="post"]'
+    );
+    const postCount = posts.length;
+
+    if (postCount < 2) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'spectrumx-summary-btn';
+    btn.className = 'spectrumx-summary-btn';
+    btn.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2l2.5 7h7l-5.5 4.5 2 7-6-4.5-6 4.5 2-7L2 9h7z"/>
+      </svg>
+      <span>Summarize ${postCount} posts</span>
+    `;
+    btn.addEventListener('click', () => runForumSummary());
+
+    header.insertAdjacentElement('afterend', btn);
+  }
+
+  /**
+   * Extract all forum posts from the current discussion page.
+   */
+  function extractForumPosts() {
+    const posts = [];
+    const postEls = document.querySelectorAll(
+      '.forumpost, .forum-post-container, [data-region="post"]'
+    );
+
+    postEls.forEach(post => {
+      const authorEl = post.querySelector('.author, .author-name, [data-region="post-author-name"]');
+      const author = authorEl?.textContent?.trim() || 'Unknown';
+
+      const subjectEl = post.querySelector('.subject, .post-subject, [data-region="post-subject"]');
+      const subject = subjectEl?.textContent?.trim() || '';
+
+      const contentEl = post.querySelector('.posting, .post-content-container, .post-content, [data-region="post-content"]');
+      const content = contentEl?.textContent?.replace(/\s+/g, ' ')?.trim() || '';
+
+      const timeEl = post.querySelector('time, .post-date, [data-region="post-time"]');
+      const date = timeEl?.textContent?.trim() || '';
+
+      if (content) {
+        posts.push({ author, subject, content, date });
+      }
+    });
+
+    return posts;
+  }
+
+  /**
+   * Main flow: extract posts → call Z.AI → show summary card.
+   */
+  async function runForumSummary() {
+    const btn = document.getElementById('spectrumx-summary-btn');
+    if (!btn) return;
+
+    let apiKey;
+    try {
+      const data = await chrome.storage.local.get(['zaiApiKey']);
+      apiKey = data.zaiApiKey;
+    } catch (e) {}
+
+    if (!apiKey) {
+      showSummaryCard({
+        error: 'Set your Z.AI API key in the SpectrumX chatbot first.'
+      });
+      return;
+    }
+
+    const posts = extractForumPosts();
+    if (posts.length === 0) {
+      showSummaryCard({ error: 'No posts found to summarize.' });
+      return;
+    }
+
+    btn.classList.add('loading');
+    btn.disabled = true;
+    showSummaryCard({ loading: true, postCount: posts.length });
+
+    try {
+      const summary = await callZaiForSummary(apiKey, posts);
+      showSummaryCard({ summary, postCount: posts.length });
+    } catch (err) {
+      showSummaryCard({ error: `AI failed: ${err.message}` });
+    } finally {
+      btn.classList.remove('loading');
+      btn.disabled = false;
+    }
+  }
+
+  /**
+   * Send posts to Z.AI GLM-5.1 with a structured prompt for summarization.
+   */
+  async function callZaiForSummary(apiKey, posts) {
+    const threadTitle = document.querySelector('#page-header h1, .page-header-headings h1, h1')?.textContent?.trim() || 'Discussion';
+
+    const formattedPosts = posts.map((p, i) => {
+      const content = p.content.length > 1000 ? p.content.substring(0, 1000) + '...' : p.content;
+      return `[Post ${i + 1}] ${p.author}${p.date ? ' (' + p.date + ')' : ''}: ${content}`;
+    }).join('\n\n');
+
+    const systemPrompt = `You are an AI assistant that helps university students quickly understand long forum discussions on their learning management system.
+
+Read the discussion and return STRICT JSON in this exact format, no other text:
+{
+  "tldr": "1-2 sentence overall summary",
+  "consensus": ["bullet 1", "bullet 2", "bullet 3"],
+  "actionItems": ["thing student should do 1", "thing student should do 2"],
+  "questions": ["unanswered question 1", "unanswered question 2"],
+  "tone": "informative|urgent|casual|frustrated|helpful"
+}
+
+Rules:
+- "tldr" must be max 200 chars
+- "consensus" = the main agreed-upon points (max 4 bullets, each max 100 chars)
+- "actionItems" = things the student should DO based on this thread (max 3, max 80 chars each) — empty array if none
+- "questions" = unanswered questions still being debated (max 3, max 100 chars each) — empty array if none
+- "tone" = the overall vibe of the discussion
+- Be concise. Cut filler. Student wants the takeaway, not a recap.
+- If thread is in Bahasa Malaysia, summarize in English.`;
+
+    const userPrompt = `Discussion Title: ${threadTitle}
+Number of posts: ${posts.length}
+
+Posts:
+${formattedPosts}
+
+Summarize this discussion as a TL;DR for a busy student. Return JSON only.`;
+
+    const response = await fetch('https://api.z.ai/api/paas/v4/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'glm-5.1',
+        max_tokens: 800,
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error?.message || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content || '';
+
+    const clean = text.replace(/```json\s*/gi, '').replace(/```\s*$/g, '').trim();
+
+    return JSON.parse(clean);
+  }
+
+  /**
+   * Show the floating summary card.
+   */
+  function showSummaryCard({ summary, error, loading, postCount }) {
+    let card = document.getElementById('spectrumx-summary-card');
+    if (!card) {
+      card = document.createElement('div');
+      card.id = 'spectrumx-summary-card';
+      card.className = 'spectrumx-summary-card';
+      document.body.appendChild(card);
+
+      card.addEventListener('click', (e) => {
+        if (e.target.matches('[data-action="close-summary"]')) {
+          card.classList.remove('active');
+        }
+      });
+    }
+
+    let inner;
+    if (loading) {
+      inner = `
+        <div class="spectrumx-summary-header">
+          <span class="spectrumx-summary-icon">✨</span>
+          <span class="spectrumx-summary-title">AI is reading ${postCount} posts...</span>
+          <button class="spectrumx-summary-close" data-action="close-summary" aria-label="Close">✕</button>
+        </div>
+        <div class="spectrumx-summary-loading">
+          <div class="spectrumx-summary-pulse"></div>
+          <div class="spectrumx-summary-pulse"></div>
+          <div class="spectrumx-summary-pulse"></div>
+        </div>
+      `;
+    } else if (error) {
+      inner = `
+        <div class="spectrumx-summary-header">
+          <span class="spectrumx-summary-icon">⚠️</span>
+          <span class="spectrumx-summary-title">Summary unavailable</span>
+          <button class="spectrumx-summary-close" data-action="close-summary" aria-label="Close">✕</button>
+        </div>
+        <div class="spectrumx-summary-error">${escapeHtmlSummary(error)}</div>
+      `;
+    } else if (summary) {
+      const toneEmoji = {
+        informative: 'ℹ️', urgent: '🚨', casual: '💬',
+        frustrated: '😤', helpful: '🤝'
+      };
+      const tone = toneEmoji[summary.tone] || '💬';
+
+      let actionsHtml = '';
+      if (summary.actionItems?.length > 0) {
+        actionsHtml = `
+          <div class="spectrumx-summary-section">
+            <div class="spectrumx-summary-section-label">📋 Things to Do</div>
+            <ul class="spectrumx-summary-list spectrumx-summary-actions">
+              ${summary.actionItems.map(a => `<li>${escapeHtmlSummary(a)}</li>`).join('')}
+            </ul>
+          </div>
+        `;
+      }
+
+      let questionsHtml = '';
+      if (summary.questions?.length > 0) {
+        questionsHtml = `
+          <div class="spectrumx-summary-section">
+            <div class="spectrumx-summary-section-label">❓ Open Questions</div>
+            <ul class="spectrumx-summary-list spectrumx-summary-questions">
+              ${summary.questions.map(q => `<li>${escapeHtmlSummary(q)}</li>`).join('')}
+            </ul>
+          </div>
+        `;
+      }
+
+      inner = `
+        <div class="spectrumx-summary-header">
+          <span class="spectrumx-summary-icon">✨</span>
+          <span class="spectrumx-summary-title">AI Summary <span class="spectrumx-summary-tone">${tone}</span></span>
+          <button class="spectrumx-summary-close" data-action="close-summary" aria-label="Close">✕</button>
+        </div>
+        <div class="spectrumx-summary-body">
+          <div class="spectrumx-summary-tldr">${escapeHtmlSummary(summary.tldr)}</div>
+          <div class="spectrumx-summary-section">
+            <div class="spectrumx-summary-section-label">🎯 Key Points</div>
+            <ul class="spectrumx-summary-list">
+              ${summary.consensus.map(c => `<li>${escapeHtmlSummary(c)}</li>`).join('')}
+            </ul>
+          </div>
+          ${actionsHtml}
+          ${questionsHtml}
+          <div class="spectrumx-summary-footer">
+            <span>Summarized ${postCount} posts · Powered by Z.AI</span>
+          </div>
+        </div>
+      `;
+    }
+
+    card.innerHTML = inner;
+    card.classList.add('active');
+  }
+
+  function escapeHtmlSummary(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
   }
 
   // ============================================================
@@ -1522,6 +2008,7 @@
     restoreReaderModeIfNeeded();
     injectFocusButtons();
     injectSpotlight();
+    injectForumSummary();
     restoreFocusIfNeeded();
 
     // Scrape after delay for Moodle JS to finish rendering

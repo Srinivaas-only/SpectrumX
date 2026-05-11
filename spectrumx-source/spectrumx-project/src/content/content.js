@@ -1682,6 +1682,287 @@
   }
 
   // ============================================================
+  // Forum TL;DR — AI summarization for forum discussions
+  // ============================================================
+
+  /**
+   * Inject the AI summary button on Moodle forum discussion pages.
+   * Only runs on URLs matching /mod/forum/discuss.php
+   */
+  function injectForumSummary() {
+    if (!window.location.pathname.includes('/mod/forum/discuss.php')) return;
+    if (document.getElementById('spectrumx-summary-btn')) return;
+
+    const header = document.querySelector('#page-header, .page-header-headings, h1');
+    if (!header) return;
+
+    const posts = document.querySelectorAll(
+      '.forumpost, .forum-post-container, [data-region="post"]'
+    );
+    const postCount = posts.length;
+
+    if (postCount < 2) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'spectrumx-summary-btn';
+    btn.className = 'spectrumx-summary-btn';
+    btn.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2l2.5 7h7l-5.5 4.5 2 7-6-4.5-6 4.5 2-7L2 9h7z"/>
+      </svg>
+      <span>Summarize ${postCount} posts</span>
+    `;
+    btn.addEventListener('click', () => runForumSummary());
+
+    header.insertAdjacentElement('afterend', btn);
+  }
+
+  /**
+   * Extract all forum posts from the current discussion page.
+   */
+  function extractForumPosts() {
+    const posts = [];
+    const postEls = document.querySelectorAll(
+      '.forumpost, .forum-post-container, [data-region="post"]'
+    );
+
+    postEls.forEach(post => {
+      const authorEl = post.querySelector('.author, .author-name, [data-region="post-author-name"]');
+      const author = authorEl?.textContent?.trim() || 'Unknown';
+
+      const subjectEl = post.querySelector('.subject, .post-subject, [data-region="post-subject"]');
+      const subject = subjectEl?.textContent?.trim() || '';
+
+      const contentEl = post.querySelector('.posting, .post-content-container, .post-content, [data-region="post-content"]');
+      const content = contentEl?.textContent?.replace(/\s+/g, ' ')?.trim() || '';
+
+      const timeEl = post.querySelector('time, .post-date, [data-region="post-time"]');
+      const date = timeEl?.textContent?.trim() || '';
+
+      if (content) {
+        posts.push({ author, subject, content, date });
+      }
+    });
+
+    return posts;
+  }
+
+  /**
+   * Main flow: extract posts → call Z.AI → show summary card.
+   */
+  async function runForumSummary() {
+    const btn = document.getElementById('spectrumx-summary-btn');
+    if (!btn) return;
+
+    let apiKey;
+    try {
+      const data = await chrome.storage.local.get(['zaiApiKey']);
+      apiKey = data.zaiApiKey;
+    } catch (e) {}
+
+    if (!apiKey) {
+      showSummaryCard({
+        error: 'Set your Z.AI API key in the SpectrumX chatbot first.'
+      });
+      return;
+    }
+
+    const posts = extractForumPosts();
+    if (posts.length === 0) {
+      showSummaryCard({ error: 'No posts found to summarize.' });
+      return;
+    }
+
+    btn.classList.add('loading');
+    btn.disabled = true;
+    showSummaryCard({ loading: true, postCount: posts.length });
+
+    try {
+      const summary = await callZaiForSummary(apiKey, posts);
+      showSummaryCard({ summary, postCount: posts.length });
+    } catch (err) {
+      showSummaryCard({ error: `AI failed: ${err.message}` });
+    } finally {
+      btn.classList.remove('loading');
+      btn.disabled = false;
+    }
+  }
+
+  /**
+   * Send posts to Z.AI GLM-5.1 with a structured prompt for summarization.
+   */
+  async function callZaiForSummary(apiKey, posts) {
+    const threadTitle = document.querySelector('#page-header h1, .page-header-headings h1, h1')?.textContent?.trim() || 'Discussion';
+
+    const formattedPosts = posts.map((p, i) => {
+      const content = p.content.length > 1000 ? p.content.substring(0, 1000) + '...' : p.content;
+      return `[Post ${i + 1}] ${p.author}${p.date ? ' (' + p.date + ')' : ''}: ${content}`;
+    }).join('\n\n');
+
+    const systemPrompt = `You are an AI assistant that helps university students quickly understand long forum discussions on their learning management system.
+
+Read the discussion and return STRICT JSON in this exact format, no other text:
+{
+  "tldr": "1-2 sentence overall summary",
+  "consensus": ["bullet 1", "bullet 2", "bullet 3"],
+  "actionItems": ["thing student should do 1", "thing student should do 2"],
+  "questions": ["unanswered question 1", "unanswered question 2"],
+  "tone": "informative|urgent|casual|frustrated|helpful"
+}
+
+Rules:
+- "tldr" must be max 200 chars
+- "consensus" = the main agreed-upon points (max 4 bullets, each max 100 chars)
+- "actionItems" = things the student should DO based on this thread (max 3, max 80 chars each) — empty array if none
+- "questions" = unanswered questions still being debated (max 3, max 100 chars each) — empty array if none
+- "tone" = the overall vibe of the discussion
+- Be concise. Cut filler. Student wants the takeaway, not a recap.
+- If thread is in Bahasa Malaysia, summarize in English.`;
+
+    const userPrompt = `Discussion Title: ${threadTitle}
+Number of posts: ${posts.length}
+
+Posts:
+${formattedPosts}
+
+Summarize this discussion as a TL;DR for a busy student. Return JSON only.`;
+
+    const response = await fetch('https://api.z.ai/api/paas/v4/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'glm-5.1',
+        max_tokens: 800,
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error?.message || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content || '';
+
+    const clean = text.replace(/```json\s*/gi, '').replace(/```\s*$/g, '').trim();
+
+    return JSON.parse(clean);
+  }
+
+  /**
+   * Show the floating summary card.
+   */
+  function showSummaryCard({ summary, error, loading, postCount }) {
+    let card = document.getElementById('spectrumx-summary-card');
+    if (!card) {
+      card = document.createElement('div');
+      card.id = 'spectrumx-summary-card';
+      card.className = 'spectrumx-summary-card';
+      document.body.appendChild(card);
+
+      card.addEventListener('click', (e) => {
+        if (e.target.matches('[data-action="close-summary"]')) {
+          card.classList.remove('active');
+        }
+      });
+    }
+
+    let inner;
+    if (loading) {
+      inner = `
+        <div class="spectrumx-summary-header">
+          <span class="spectrumx-summary-icon">✨</span>
+          <span class="spectrumx-summary-title">AI is reading ${postCount} posts...</span>
+          <button class="spectrumx-summary-close" data-action="close-summary" aria-label="Close">✕</button>
+        </div>
+        <div class="spectrumx-summary-loading">
+          <div class="spectrumx-summary-pulse"></div>
+          <div class="spectrumx-summary-pulse"></div>
+          <div class="spectrumx-summary-pulse"></div>
+        </div>
+      `;
+    } else if (error) {
+      inner = `
+        <div class="spectrumx-summary-header">
+          <span class="spectrumx-summary-icon">⚠️</span>
+          <span class="spectrumx-summary-title">Summary unavailable</span>
+          <button class="spectrumx-summary-close" data-action="close-summary" aria-label="Close">✕</button>
+        </div>
+        <div class="spectrumx-summary-error">${escapeHtmlSummary(error)}</div>
+      `;
+    } else if (summary) {
+      const toneEmoji = {
+        informative: 'ℹ️', urgent: '🚨', casual: '💬',
+        frustrated: '😤', helpful: '🤝'
+      };
+      const tone = toneEmoji[summary.tone] || '💬';
+
+      let actionsHtml = '';
+      if (summary.actionItems?.length > 0) {
+        actionsHtml = `
+          <div class="spectrumx-summary-section">
+            <div class="spectrumx-summary-section-label">📋 Things to Do</div>
+            <ul class="spectrumx-summary-list spectrumx-summary-actions">
+              ${summary.actionItems.map(a => `<li>${escapeHtmlSummary(a)}</li>`).join('')}
+            </ul>
+          </div>
+        `;
+      }
+
+      let questionsHtml = '';
+      if (summary.questions?.length > 0) {
+        questionsHtml = `
+          <div class="spectrumx-summary-section">
+            <div class="spectrumx-summary-section-label">❓ Open Questions</div>
+            <ul class="spectrumx-summary-list spectrumx-summary-questions">
+              ${summary.questions.map(q => `<li>${escapeHtmlSummary(q)}</li>`).join('')}
+            </ul>
+          </div>
+        `;
+      }
+
+      inner = `
+        <div class="spectrumx-summary-header">
+          <span class="spectrumx-summary-icon">✨</span>
+          <span class="spectrumx-summary-title">AI Summary <span class="spectrumx-summary-tone">${tone}</span></span>
+          <button class="spectrumx-summary-close" data-action="close-summary" aria-label="Close">✕</button>
+        </div>
+        <div class="spectrumx-summary-body">
+          <div class="spectrumx-summary-tldr">${escapeHtmlSummary(summary.tldr)}</div>
+          <div class="spectrumx-summary-section">
+            <div class="spectrumx-summary-section-label">🎯 Key Points</div>
+            <ul class="spectrumx-summary-list">
+              ${summary.consensus.map(c => `<li>${escapeHtmlSummary(c)}</li>`).join('')}
+            </ul>
+          </div>
+          ${actionsHtml}
+          ${questionsHtml}
+          <div class="spectrumx-summary-footer">
+            <span>Summarized ${postCount} posts · Powered by Z.AI</span>
+          </div>
+        </div>
+      `;
+    }
+
+    card.innerHTML = inner;
+    card.classList.add('active');
+  }
+
+  function escapeHtmlSummary(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+  }
+
+  // ============================================================
   // Main: detect courses → scrape → send to background
   // ============================================================
   const registry = new CourseRegistry();
@@ -1727,6 +2008,7 @@
     restoreReaderModeIfNeeded();
     injectFocusButtons();
     injectSpotlight();
+    injectForumSummary();
     restoreFocusIfNeeded();
 
     // Scrape after delay for Moodle JS to finish rendering
