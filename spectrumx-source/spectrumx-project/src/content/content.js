@@ -1200,6 +1200,171 @@
   }
 
   // ============================================================
+  // Focus Mode — hide non-focused sections on course pages
+  // ============================================================
+
+  /**
+   * Inject a "Focus this section" button into every Moodle course section header.
+   * Only runs on course pages (URL contains /course/view.php).
+   */
+  function injectFocusButtons() {
+    // Only run on course pages
+    if (!window.location.pathname.includes('/course/view.php')) return;
+
+    // Find all course sections
+    const sections = document.querySelectorAll(
+      'li.section.course-section[data-sectionid], li.section.main[data-sectionid]'
+    );
+
+    if (sections.length < 2) return; // No point if only one section
+
+    sections.forEach(section => {
+      // Skip section 0 (General) and Attendance section — not "weeks"
+      const sectionName = section.getAttribute('data-sectionname') || '';
+      const sectionId = section.getAttribute('data-sectionid');
+      if (sectionId === '0' || /^general$/i.test(sectionName)) return;
+
+      // Don't double-inject
+      if (section.querySelector('.spectrumx-focus-btn')) return;
+
+      // Find the section header
+      const header = section.querySelector('.course-section-header, .section-header');
+      if (!header) return;
+
+      // Create focus button
+      const btn = document.createElement('button');
+      btn.className = 'spectrumx-focus-btn';
+      btn.title = 'Focus on this section only';
+      btn.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+        Focus
+      `;
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        focusSection(sectionId);
+      });
+
+      header.appendChild(btn);
+    });
+
+    // Inject the "Show All" floating bar (hidden until focused)
+    injectFocusBar();
+  }
+
+  /**
+   * Inject the floating "Show All Sections" bar at the top of the page.
+   * Only visible when a section is focused.
+   */
+  function injectFocusBar() {
+    if (document.getElementById('spectrumx-focus-bar')) return;
+
+    const bar = document.createElement('div');
+    bar.id = 'spectrumx-focus-bar';
+    bar.innerHTML = `
+      <div class="spectrumx-focus-bar-inner">
+        <span class="spectrumx-focus-bar-icon">🎯</span>
+        <span class="spectrumx-focus-bar-text">Focused on: <strong id="spectrumx-focus-section-name"></strong></span>
+        <button id="spectrumx-show-all-btn">Show All Sections</button>
+      </div>
+    `;
+    document.body.appendChild(bar);
+
+    document.getElementById('spectrumx-show-all-btn').addEventListener('click', () => {
+      unfocusAll();
+    });
+  }
+
+  /**
+   * Focus on a single section — hide all others.
+   */
+  function focusSection(sectionId) {
+    const sections = document.querySelectorAll(
+      'li.section.course-section[data-sectionid], li.section.main[data-sectionid]'
+    );
+
+    let focusedName = '';
+    sections.forEach(section => {
+      const id = section.getAttribute('data-sectionid');
+      const name = section.getAttribute('data-sectionname') || '';
+
+      // Always keep section 0 (General announcements) visible
+      if (id === '0') return;
+
+      if (id === sectionId) {
+        section.classList.remove('spectrumx-hidden-section');
+        focusedName = name;
+      } else {
+        section.classList.add('spectrumx-hidden-section');
+      }
+    });
+
+    // Show the focus bar
+    const bar = document.getElementById('spectrumx-focus-bar');
+    if (bar) {
+      bar.classList.add('active');
+      document.getElementById('spectrumx-focus-section-name').textContent = focusedName;
+    }
+
+    // Persist
+    try {
+      chrome.storage.local.set({
+        [`focus_${getCourseId()}`]: sectionId
+      });
+    } catch (e) {}
+
+    showToast(`🎯 Focused on: ${focusedName}`);
+
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  /**
+   * Restore all sections (unfocus).
+   */
+  function unfocusAll() {
+    document.querySelectorAll('.spectrumx-hidden-section').forEach(s => {
+      s.classList.remove('spectrumx-hidden-section');
+    });
+
+    const bar = document.getElementById('spectrumx-focus-bar');
+    if (bar) bar.classList.remove('active');
+
+    try {
+      chrome.storage.local.remove([`focus_${getCourseId()}`]);
+    } catch (e) {}
+
+    showToast('Showing all sections');
+  }
+
+  /**
+   * Get current course ID from URL.
+   */
+  function getCourseId() {
+    const match = window.location.search.match(/[?&]id=(\d+)/);
+    return match ? match[1] : 'unknown';
+  }
+
+  /**
+   * Restore focus state from storage if previously focused.
+   */
+  async function restoreFocusIfNeeded() {
+    if (!window.location.pathname.includes('/course/view.php')) return;
+    try {
+      const courseId = getCourseId();
+      const key = `focus_${courseId}`;
+      const data = await chrome.storage.local.get([key]);
+      if (data[key]) {
+        // Wait a tick for DOM to be ready
+        setTimeout(() => focusSection(data[key]), 100);
+      }
+    } catch (e) {}
+  }
+
+  // ============================================================
   // Main: detect courses → scrape → send to background
   // ============================================================
   const registry = new CourseRegistry();
@@ -1243,6 +1408,8 @@
   function init() {
     injectFAB();
     restoreReaderModeIfNeeded();
+    injectFocusButtons();
+    restoreFocusIfNeeded();
 
     // Scrape after delay for Moodle JS to finish rendering
     setTimeout(async () => {
@@ -1268,7 +1435,10 @@
 
       if (significant) {
         clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(scrapeAndSend, 1500);
+        debounceTimer = setTimeout(() => {
+          scrapeAndSend();
+          injectFocusButtons();
+        }, 1500);
       }
     });
 
