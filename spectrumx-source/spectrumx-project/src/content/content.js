@@ -1077,6 +1077,7 @@
           <button class="spectrumx-fab-menu-item" data-action="deepscan">🔍 Deep Scan All Courses</button>
           <button class="spectrumx-fab-menu-item" data-action="refresh">🔄 Refresh Data</button>
           <button class="spectrumx-fab-menu-item" data-action="reader-mode">🧘 Reader Mode</button>
+          <button class="spectrumx-fab-menu-item" data-action="spotlight">🔍 Spotlight Search</button>
         </div>
       </div>
     `;
@@ -1127,6 +1128,10 @@
           break;
         case 'reader-mode':
           toggleReaderMode();
+          break;
+        case 'spotlight':
+          document.getElementById('spectrumx-spotlight')?.classList.add('active');
+          setTimeout(() => document.getElementById('spectrumx-spotlight-input')?.focus(), 50);
           break;
       }
     });
@@ -1365,6 +1370,318 @@
   }
 
   // ============================================================
+  // Spotlight Search — Cmd/Ctrl+K command palette
+  // ============================================================
+
+  /**
+   * Inject the Spotlight overlay into the page.
+   * Listens for Cmd/Ctrl+K to show it.
+   */
+  function injectSpotlight() {
+    // Don't double-inject
+    if (document.getElementById('spectrumx-spotlight')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'spectrumx-spotlight';
+    overlay.innerHTML = `
+      <div class="spectrumx-spotlight-backdrop" data-action="close"></div>
+      <div class="spectrumx-spotlight-modal" role="dialog" aria-label="SpectrumX Search">
+        <div class="spectrumx-spotlight-header">
+          <svg class="spectrumx-spotlight-search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="M21 21l-4.35-4.35"/>
+          </svg>
+          <input
+            type="text"
+            id="spectrumx-spotlight-input"
+            class="spectrumx-spotlight-input"
+            placeholder="Search deadlines, courses, anything..."
+            autocomplete="off"
+            spellcheck="false"
+          >
+          <kbd class="spectrumx-spotlight-kbd">ESC</kbd>
+        </div>
+        <div class="spectrumx-spotlight-results" id="spectrumx-spotlight-results">
+        </div>
+        <div class="spectrumx-spotlight-footer">
+          <span class="spectrumx-spotlight-hint">
+            <kbd>↑</kbd><kbd>↓</kbd> Navigate
+          </span>
+          <span class="spectrumx-spotlight-hint">
+            <kbd>↵</kbd> Open
+          </span>
+          <span class="spectrumx-spotlight-hint">
+            <kbd>ESC</kbd> Close
+          </span>
+          <span class="spectrumx-spotlight-brand">⚡ SpectrumX</span>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    // Setup event listeners
+    setupSpotlightHandlers();
+  }
+
+  /**
+   * Setup all spotlight event handlers (keyboard, click, search).
+   */
+  function setupSpotlightHandlers() {
+    const overlay = document.getElementById('spectrumx-spotlight');
+    const input = document.getElementById('spectrumx-spotlight-input');
+    const results = document.getElementById('spectrumx-spotlight-results');
+
+    let selectedIndex = 0;
+    let currentResults = [];
+
+    // Open with Cmd/Ctrl + K
+    document.addEventListener('keydown', (e) => {
+      const isCmdK = (e.metaKey || e.ctrlKey) && e.key === 'k';
+      if (isCmdK) {
+        e.preventDefault();
+        openSpotlight();
+      }
+
+      // Close with ESC if open
+      if (e.key === 'Escape' && overlay.classList.contains('active')) {
+        closeSpotlight();
+      }
+    });
+
+    // Backdrop click closes
+    overlay.querySelector('[data-action="close"]').addEventListener('click', closeSpotlight);
+
+    // Input typing → search
+    input.addEventListener('input', () => {
+      selectedIndex = 0;
+      renderResults();
+    });
+
+    // Keyboard navigation in results
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        selectedIndex = Math.min(selectedIndex + 1, currentResults.length - 1);
+        updateSelection();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        selectedIndex = Math.max(selectedIndex - 1, 0);
+        updateSelection();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const selected = currentResults[selectedIndex];
+        if (selected) openResult(selected);
+      }
+    });
+
+    async function openSpotlight() {
+      overlay.classList.add('active');
+      input.value = '';
+      selectedIndex = 0;
+      await renderResults();
+      setTimeout(() => input.focus(), 50);
+    }
+
+    function closeSpotlight() {
+      overlay.classList.remove('active');
+      input.blur();
+    }
+
+    /**
+     * Build the full searchable dataset.
+     */
+    async function getSearchableItems() {
+      let events = [];
+      let courses = [];
+
+      try {
+        const data = await chrome.storage.local.get(['events', 'courses']);
+        events = data.events || [];
+        courses = data.courses || [];
+      } catch (e) {}
+
+      // Quick links — Spectrum's standard pages
+      const quickLinks = [
+        { type: 'link', title: 'Dashboard', subtitle: 'Your Spectrum dashboard', url: 'https://spectrum.um.edu.my/my/', icon: '🏠' },
+        { type: 'link', title: 'My Courses', subtitle: 'All enrolled courses', url: 'https://spectrum.um.edu.my/my/courses.php', icon: '📚' },
+        { type: 'link', title: 'Calendar', subtitle: 'Spectrum calendar view', url: 'https://spectrum.um.edu.my/calendar/view.php?view=month', icon: '📅' },
+        { type: 'link', title: 'Grades', subtitle: 'Your grade overview', url: 'https://spectrum.um.edu.my/grade/report/overview/index.php', icon: '🎓' },
+        { type: 'link', title: 'Messages', subtitle: 'Chat with classmates and lecturers', url: 'https://spectrum.um.edu.my/message/index.php', icon: '💬' },
+        { type: 'link', title: 'Profile', subtitle: 'Your user profile', url: 'https://spectrum.um.edu.my/user/profile.php', icon: '👤' },
+        { type: 'link', title: 'Private Files', subtitle: 'Your uploaded files', url: 'https://spectrum.um.edu.my/user/files.php', icon: '📁' },
+        { type: 'link', title: 'Preferences', subtitle: 'Account settings', url: 'https://spectrum.um.edu.my/user/preferences.php', icon: '⚙️' }
+      ];
+
+      // Map events to search items
+      const eventItems = events.map(evt => {
+        const eventDate = new Date(evt.date);
+        const dateStr = eventDate.toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' });
+        return {
+          type: 'event',
+          title: evt.title,
+          subtitle: `${evt.courseId || ''} · ${dateStr}`,
+          url: evt.sourceUrl,
+          icon: getEventEmoji(evt.type),
+          date: evt.date,
+          eventType: evt.type
+        };
+      });
+
+      // Map courses to search items
+      const courseItems = courses.map(c => ({
+        type: 'course',
+        title: c.name ? `${c.id} ${c.name}` : c.id,
+        subtitle: c.category || 'Course',
+        url: c.url || `https://spectrum.um.edu.my/course/view.php?id=${c.moodleId}`,
+        icon: '📖'
+      }));
+
+      return [...eventItems, ...courseItems, ...quickLinks];
+    }
+
+    function getEventEmoji(type) {
+      const map = {
+        exam: '📝', quiz: '❓', assignment: '📄', lab: '🔬',
+        viva: '🎤', presentation: '📊', project: '🏗️',
+        tutorial: '📚', other: '📌'
+      };
+      return map[type] || '📌';
+    }
+
+    /**
+     * Fuzzy match score. Higher = better match.
+     */
+    function fuzzyScore(query, target) {
+      if (!query) return 1;
+      query = query.toLowerCase();
+      target = target.toLowerCase();
+
+      // Exact substring is the best
+      if (target.includes(query)) {
+        return 1000 - target.indexOf(query);
+      }
+
+      // Fuzzy: all chars must appear in order
+      let qi = 0;
+      let score = 0;
+      let lastIdx = -1;
+      for (let ti = 0; ti < target.length && qi < query.length; ti++) {
+        if (target[ti] === query[qi]) {
+          score += 10;
+          if (lastIdx >= 0 && ti - lastIdx === 1) score += 5;
+          lastIdx = ti;
+          qi++;
+        }
+      }
+      if (qi < query.length) return 0;
+      return score;
+    }
+
+    /**
+     * Render results based on current query.
+     */
+    async function renderResults() {
+      const query = input.value.trim();
+      const items = await getSearchableItems();
+
+      // Score and filter
+      const scored = items.map(item => {
+        const titleScore = fuzzyScore(query, item.title);
+        const subtitleScore = fuzzyScore(query, item.subtitle || '') * 0.5;
+        const score = Math.max(titleScore, subtitleScore);
+        return { item, score };
+      }).filter(x => x.score > 0);
+
+      // Sort by score
+      scored.sort((a, b) => b.score - a.score);
+
+      // Limit to top 20
+      currentResults = scored.slice(0, 20).map(x => x.item);
+
+      if (currentResults.length === 0) {
+        results.innerHTML = `
+          <div class="spectrumx-spotlight-empty">
+            <div class="spectrumx-spotlight-empty-icon">🔍</div>
+            <div class="spectrumx-spotlight-empty-text">No results for "${escapeHtml(query)}"</div>
+            <div class="spectrumx-spotlight-empty-hint">Try DeepScan to find more events</div>
+          </div>
+        `;
+        return;
+      }
+
+      // Group by type
+      const groups = { event: [], course: [], link: [] };
+      currentResults.forEach(item => {
+        if (groups[item.type]) groups[item.type].push(item);
+      });
+
+      let html = '';
+      const groupLabels = {
+        event: 'Deadlines',
+        course: 'Courses',
+        link: 'Quick Links'
+      };
+
+      let runningIndex = 0;
+      ['event', 'course', 'link'].forEach(type => {
+        const groupItems = groups[type];
+        if (groupItems.length === 0) return;
+
+        html += `<div class="spectrumx-spotlight-group-label">${groupLabels[type]}</div>`;
+        groupItems.forEach(item => {
+          const isSelected = runningIndex === selectedIndex;
+          html += `
+            <div class="spectrumx-spotlight-result ${isSelected ? 'selected' : ''}" data-idx="${runningIndex}">
+              <span class="spectrumx-spotlight-result-icon">${item.icon}</span>
+              <div class="spectrumx-spotlight-result-content">
+                <div class="spectrumx-spotlight-result-title">${escapeHtml(item.title)}</div>
+                <div class="spectrumx-spotlight-result-subtitle">${escapeHtml(item.subtitle || '')}</div>
+              </div>
+              <span class="spectrumx-spotlight-result-type">${type}</span>
+            </div>
+          `;
+          runningIndex++;
+        });
+      });
+
+      results.innerHTML = html;
+
+      // Click handlers
+      results.querySelectorAll('.spectrumx-spotlight-result').forEach(el => {
+        el.addEventListener('click', () => {
+          const idx = parseInt(el.dataset.idx);
+          if (currentResults[idx]) openResult(currentResults[idx]);
+        });
+        el.addEventListener('mouseenter', () => {
+          selectedIndex = parseInt(el.dataset.idx);
+          updateSelection();
+        });
+      });
+    }
+
+    function updateSelection() {
+      results.querySelectorAll('.spectrumx-spotlight-result').forEach((el, idx) => {
+        el.classList.toggle('selected', idx === selectedIndex);
+      });
+      const selected = results.querySelector('.spectrumx-spotlight-result.selected');
+      if (selected) selected.scrollIntoView({ block: 'nearest' });
+    }
+
+    function openResult(item) {
+      if (item.url) {
+        window.location.href = item.url;
+      }
+      closeSpotlight();
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  }
+
+  // ============================================================
   // Main: detect courses → scrape → send to background
   // ============================================================
   const registry = new CourseRegistry();
@@ -1409,6 +1726,7 @@
     injectFAB();
     restoreReaderModeIfNeeded();
     injectFocusButtons();
+    injectSpotlight();
     restoreFocusIfNeeded();
 
     // Scrape after delay for Moodle JS to finish rendering

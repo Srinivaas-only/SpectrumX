@@ -487,3 +487,251 @@ html.spectrumx-reader-mode .spectrumx-focus-btn {
   border-color: rgba(139, 92, 246, 0.4) !important;
   color: #A78BFA !important;
 }
+
+/* ============================================================
+   Spotlight Search Overlay
+   ============================================================ */
+#spectrumx-spotlight {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+#spectrumx-spotlight.active {
+  display: flex;
+  animation: spectrumx-spotlight-fade 0.18s ease-out;
+}
+
+@keyframes spectrumx-spotlight-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.spectrumx-spotlight-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.spectrumx-spotlight-modal {
+  position: relative;
+  width: 92%;
+  max-width: 620px;
+  max-height: 70vh;
+  background: rgba(15, 14, 19, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(139, 92, 246, 0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: spectrumx-spotlight-scale 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes spectrumx-spotlight-scale {
+  from { opacity: 0; transform: scale(0.96) translateY(-12px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.spectrumx-spotlight-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.spectrumx-spotlight-search-icon {
+  color: rgba(255, 255, 255, 0.4);
+  flex-shrink: 0;
+}
+
+.spectrumx-spotlight-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #F0EEF6;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.spectrumx-spotlight-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.spectrumx-spotlight-kbd {
+  padding: 3px 8px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+}
+
+.spectrumx-spotlight-results {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+.spectrumx-spotlight-results::-webkit-scrollbar {
+  width: 6px;
+}
+
+.spectrumx-spotlight-results::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.spectrumx-spotlight-group-label {
+  padding: 12px 12px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.spectrumx-spotlight-result {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.spectrumx-spotlight-result:hover,
+.spectrumx-spotlight-result.selected {
+  background: rgba(139, 92, 246, 0.12);
+}
+
+.spectrumx-spotlight-result.selected {
+  background: rgba(139, 92, 246, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.3);
+}
+
+.spectrumx-spotlight-result-icon {
+  font-size: 18px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  flex-shrink: 0;
+}
+
+.spectrumx-spotlight-result-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.spectrumx-spotlight-result-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #F0EEF6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+.spectrumx-spotlight-result-subtitle {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spectrumx-spotlight-result-type {
+  padding: 2px 7px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgba(139, 92, 246, 0.8);
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.spectrumx-spotlight-empty {
+  padding: 48px 20px;
+  text-align: center;
+}
+
+.spectrumx-spotlight-empty-icon {
+  font-size: 36px;
+  margin-bottom: 12px;
+  opacity: 0.5;
+}
+
+.spectrumx-spotlight-empty-text {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 4px;
+}
+
+.spectrumx-spotlight-empty-hint {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.spectrumx-spotlight-footer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.spectrumx-spotlight-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.spectrumx-spotlight-hint kbd {
+  padding: 2px 5px;
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  min-width: 16px;
+  text-align: center;
+}
+
+.spectrumx-spotlight-brand {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(139, 92, 246, 0.7);
+}
