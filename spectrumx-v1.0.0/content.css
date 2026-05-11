@@ -151,3 +151,227 @@
   opacity: 1;
   transform: translateY(0);
 }
+
+/* ============================================================
+   Reader Mode — strips Moodle UI for distraction-free reading
+   ============================================================ */
+html.spectrumx-reader-mode {
+  background: #0F0E13 !important;
+}
+
+html.spectrumx-reader-mode body {
+  background: #0F0E13 !important;
+  color: #E8E6F0 !important;
+}
+
+/* Hide everything by default */
+html.spectrumx-reader-mode #page-wrapper > *:not(#page),
+html.spectrumx-reader-mode nav.navbar,
+html.spectrumx-reader-mode .drawer,
+html.spectrumx-reader-mode #theme_moove-drawers-primary,
+html.spectrumx-reader-mode #theme_boost-drawers-blocks,
+html.spectrumx-reader-mode #accessibilitybar,
+html.spectrumx-reader-mode #page-header,
+html.spectrumx-reader-mode #page-footer,
+html.spectrumx-reader-mode footer,
+html.spectrumx-reader-mode .drawer-toggles,
+html.spectrumx-reader-mode .secondary-navigation,
+html.spectrumx-reader-mode [data-region="blocks-column"],
+html.spectrumx-reader-mode [data-region="popover-region"],
+html.spectrumx-reader-mode aside,
+html.spectrumx-reader-mode .block-region,
+html.spectrumx-reader-mode .navbar,
+html.spectrumx-reader-mode .breadcrumb-nav,
+html.spectrumx-reader-mode .toast-wrapper {
+  display: none !important;
+}
+
+/* Keep the SpectrumX FAB visible */
+html.spectrumx-reader-mode #spectrumx-fab,
+html.spectrumx-reader-mode #spectrumx-toast {
+  display: block !important;
+}
+
+/* Main content area — center it, restyle for reading */
+html.spectrumx-reader-mode #page-wrapper {
+  background: #0F0E13 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+html.spectrumx-reader-mode #page {
+  margin: 0 auto !important;
+  padding: 60px 20px !important;
+  max-width: 760px !important;
+  background: transparent !important;
+  width: 100% !important;
+}
+
+html.spectrumx-reader-mode #page-content,
+html.spectrumx-reader-mode #region-main-box,
+html.spectrumx-reader-mode #region-main,
+html.spectrumx-reader-mode .main-inner {
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  max-width: 100% !important;
+  width: 100% !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Typography for reading */
+html.spectrumx-reader-mode #region-main,
+html.spectrumx-reader-mode .main-inner {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
+  font-size: 16px !important;
+  line-height: 1.75 !important;
+  color: #E8E6F0 !important;
+}
+
+html.spectrumx-reader-mode h1,
+html.spectrumx-reader-mode h2,
+html.spectrumx-reader-mode h3,
+html.spectrumx-reader-mode h4,
+html.spectrumx-reader-mode h5 {
+  color: #F0EEF6 !important;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin-top: 1.5em !important;
+  margin-bottom: 0.5em !important;
+  font-weight: 700 !important;
+}
+
+html.spectrumx-reader-mode h1 { font-size: 32px !important; }
+html.spectrumx-reader-mode h2 { font-size: 24px !important; }
+html.spectrumx-reader-mode h3 { font-size: 20px !important; }
+
+html.spectrumx-reader-mode p,
+html.spectrumx-reader-mode li,
+html.spectrumx-reader-mode td {
+  color: #C9C5D4 !important;
+  background: transparent !important;
+}
+
+html.spectrumx-reader-mode a {
+  color: #A78BFA !important;
+  text-decoration: underline !important;
+}
+
+html.spectrumx-reader-mode a:hover {
+  color: #C4B5FD !important;
+}
+
+html.spectrumx-reader-mode hr {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Code blocks */
+html.spectrumx-reader-mode pre,
+html.spectrumx-reader-mode code {
+  background: #1A1A25 !important;
+  color: #E8E6F0 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 8px !important;
+  padding: 12px !important;
+}
+
+/* Tables — keep them readable in dark mode */
+html.spectrumx-reader-mode table {
+  background: transparent !important;
+  border-collapse: collapse !important;
+  width: 100% !important;
+}
+
+html.spectrumx-reader-mode th {
+  background: #1A1A25 !important;
+  color: #F0EEF6 !important;
+  padding: 12px !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  text-align: left !important;
+}
+
+html.spectrumx-reader-mode td {
+  padding: 12px !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Images — center them, add subtle border */
+html.spectrumx-reader-mode img {
+  display: block !important;
+  margin: 24px auto !important;
+  max-width: 100% !important;
+  border-radius: 8px !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Lists */
+html.spectrumx-reader-mode ul,
+html.spectrumx-reader-mode ol {
+  margin: 12px 0 !important;
+  padding-left: 24px !important;
+}
+
+/* Activity cards — keep them visible but restyled */
+html.spectrumx-reader-mode .activity,
+html.spectrumx-reader-mode .activity-wrapper {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: 12px !important;
+  padding: 16px !important;
+  margin: 8px 0 !important;
+}
+
+/* Section content separators */
+html.spectrumx-reader-mode .section-summary,
+html.spectrumx-reader-mode .section-item {
+  background: transparent !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Forum posts — make them readable */
+html.spectrumx-reader-mode .forumpost,
+html.spectrumx-reader-mode .post-content-container {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: 12px !important;
+  padding: 20px !important;
+  margin: 12px 0 !important;
+  color: #C9C5D4 !important;
+}
+
+/* Buttons — restyle subtly */
+html.spectrumx-reader-mode .btn,
+html.spectrumx-reader-mode button:not(#spectrumx-main-btn):not(.spectrumx-fab-menu-item) {
+  background: rgba(139, 92, 246, 0.1) !important;
+  border: 1px solid rgba(139, 92, 246, 0.3) !important;
+  color: #A78BFA !important;
+  border-radius: 8px !important;
+}
+
+html.spectrumx-reader-mode .btn-primary {
+  background: rgba(139, 92, 246, 0.2) !important;
+  border-color: rgba(139, 92, 246, 0.5) !important;
+}
+
+/* Reader Mode indicator pill — top right corner */
+html.spectrumx-reader-mode body::before {
+  content: '🧘 Reader Mode';
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 10000;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.15);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  color: #A78BFA;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}

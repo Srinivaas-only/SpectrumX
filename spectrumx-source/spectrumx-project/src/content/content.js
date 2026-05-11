@@ -1076,6 +1076,7 @@
           <button class="spectrumx-fab-menu-item" data-action="chatbot">🤖 Ask SpectrumX</button>
           <button class="spectrumx-fab-menu-item" data-action="deepscan">🔍 Deep Scan All Courses</button>
           <button class="spectrumx-fab-menu-item" data-action="refresh">🔄 Refresh Data</button>
+          <button class="spectrumx-fab-menu-item" data-action="reader-mode">🧘 Reader Mode</button>
         </div>
       </div>
     `;
@@ -1124,6 +1125,9 @@
           await scrapeAndSend();
           showToast('Data refreshed! ✅');
           break;
+        case 'reader-mode':
+          toggleReaderMode();
+          break;
       }
     });
 
@@ -1154,6 +1158,45 @@
       toast.classList.remove('show');
       setTimeout(() => toast.remove(), 300);
     }, 3000);
+  }
+
+  // ============================================================
+  // Reader Mode — distraction-free reading
+  // ============================================================
+
+  /**
+   * Toggle Reader Mode — strips away Moodle's UI chrome
+   * for a distraction-free reading experience.
+   */
+  function toggleReaderMode() {
+    const html = document.documentElement;
+    const isEnabled = html.classList.contains('spectrumx-reader-mode');
+
+    if (isEnabled) {
+      html.classList.remove('spectrumx-reader-mode');
+      showToast('Reader Mode off');
+    } else {
+      html.classList.add('spectrumx-reader-mode');
+      showToast('Reader Mode on');
+    }
+
+    // Persist preference
+    try {
+      chrome.storage.local.set({ readerModeEnabled: !isEnabled });
+    } catch (e) { /* ignore */ }
+  }
+
+  /**
+   * Restore Reader Mode if it was on last time.
+   * Called on page load.
+   */
+  async function restoreReaderModeIfNeeded() {
+    try {
+      const data = await chrome.storage.local.get(['readerModeEnabled']);
+      if (data.readerModeEnabled) {
+        document.documentElement.classList.add('spectrumx-reader-mode');
+      }
+    } catch (e) { /* ignore */ }
   }
 
   // ============================================================
@@ -1199,6 +1242,7 @@
   // ============================================================
   function init() {
     injectFAB();
+    restoreReaderModeIfNeeded();
 
     // Scrape after delay for Moodle JS to finish rendering
     setTimeout(async () => {
