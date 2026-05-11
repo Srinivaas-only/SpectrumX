@@ -1682,6 +1682,285 @@
   }
 
   // ============================================================
+  // Export to Markdown — course page export
+  // ============================================================
+
+  /**
+   * Inject the "Export to Markdown" button on course pages.
+   */
+  function injectExportButton() {
+    if (!window.location.pathname.includes('/course/view.php')) return;
+    if (document.getElementById('spectrumx-export-btn')) return;
+
+    const header = document.querySelector('#page-header, .page-header-headings, h1');
+    if (!header) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'spectrumx-export-btn';
+    btn.className = 'spectrumx-export-btn';
+    btn.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      <span>Export to Markdown</span>
+    `;
+    btn.addEventListener('click', () => runExport());
+
+    header.insertAdjacentElement('afterend', btn);
+  }
+
+  /**
+   * Extract everything from the current course page and convert to markdown.
+   */
+  function buildCourseMarkdown() {
+    const titleEl = document.querySelector('#page-header h1, .page-header-headings h1, h1');
+    const fullTitle = titleEl?.textContent?.trim() || 'Course';
+    const codeMatch = fullTitle.match(/([A-Z]{2,4}\d{3,4}(?:\/[A-Z]{2,4}\d{3,4})?)/);
+    const courseCode = codeMatch ? codeMatch[1] : '';
+    const courseName = codeMatch ? fullTitle.replace(codeMatch[0], '').trim() : fullTitle;
+
+    const summaryEl = document.querySelector('.course-summary, .summarytext, .course-content-header-summary');
+    const summary = summaryEl?.textContent?.trim() || '';
+
+    const courseUrl = window.location.href;
+
+    const exportDate = new Date().toLocaleDateString('en-MY', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+    });
+
+    let md = `# ${fullTitle}\n\n`;
+    if (courseCode) md += `**Course Code:** ${courseCode}\n\n`;
+    if (courseName && courseName !== fullTitle) md += `**Course Name:** ${courseName}\n\n`;
+    md += `**Source:** [Spectrum](${courseUrl})\n\n`;
+    md += `**Exported:** ${exportDate}\n\n`;
+    if (summary) {
+      md += `---\n\n`;
+      md += `## Overview\n\n${summary}\n\n`;
+    }
+    md += `---\n\n`;
+
+    const sections = document.querySelectorAll(
+      'li.section.course-section[data-sectionid], li.section.main[data-sectionid]'
+    );
+
+    if (sections.length === 0) {
+      md += `*No sections found.*\n`;
+      return { markdown: md, courseCode, courseName: fullTitle };
+    }
+
+    md += `## Course Content\n\n`;
+
+    sections.forEach(section => {
+      const sectionName = section.getAttribute('data-sectionname') || 'Section';
+      const sectionId = section.getAttribute('data-sectionid');
+
+      if (sectionId === '0' && !section.querySelector('.activity')) return;
+
+      md += `### ${sectionName}\n\n`;
+
+      const sectionSummary = section.querySelector('.section_availability, .summary');
+      const summaryText = sectionSummary?.textContent?.trim();
+      if (summaryText && summaryText.length > 10) {
+        md += `> ${summaryText.replace(/\n+/g, '\n> ')}\n\n`;
+      }
+
+      const activities = section.querySelectorAll('.activity, .activity-wrapper');
+      if (activities.length === 0) {
+        md += `*(no activities)*\n\n`;
+        return;
+      }
+
+      activities.forEach(activity => {
+        const card = activity.querySelector('[data-activityname]');
+        const activityName = card?.getAttribute('data-activityname')?.trim() || '';
+        if (!activityName) return;
+
+        const linkEl = activity.querySelector('.instancename')?.closest('a') ||
+                       activity.querySelector('a.aalink');
+        const activityUrl = linkEl?.href || '';
+
+        let typeIcon = '📌';
+        let typeLabel = '';
+        if (activity.classList.contains('modtype_assign')) { typeIcon = '📄'; typeLabel = 'Assignment'; }
+        else if (activity.classList.contains('modtype_quiz')) { typeIcon = '❓'; typeLabel = 'Quiz'; }
+        else if (activity.classList.contains('modtype_forum')) { typeIcon = '💬'; typeLabel = 'Forum'; }
+        else if (activity.classList.contains('modtype_resource')) { typeIcon = '📎'; typeLabel = 'Resource'; }
+        else if (activity.classList.contains('modtype_url')) { typeIcon = '🔗'; typeLabel = 'Link'; }
+        else if (activity.classList.contains('modtype_folder')) { typeIcon = '📁'; typeLabel = 'Folder'; }
+        else if (activity.classList.contains('modtype_workshop')) { typeIcon = '🏗️'; typeLabel = 'Workshop'; }
+        else if (activity.classList.contains('modtype_lesson')) { typeIcon = '📚'; typeLabel = 'Lesson'; }
+        else if (activity.classList.contains('modtype_label')) { typeIcon = '📝'; typeLabel = 'Label'; }
+        else if (activity.classList.contains('modtype_attendance')) { typeIcon = '✅'; typeLabel = 'Attendance'; }
+        else if (activity.classList.contains('modtype_choice')) { typeIcon = '☑️'; typeLabel = 'Choice'; }
+
+        if (activity.classList.contains('modtype_label')) {
+          const labelText = activity.querySelector('.activity-altcontent, .contentafterlink')?.textContent?.trim();
+          if (labelText && labelText.length > 20) {
+            md += `${labelText.substring(0, 500)}\n\n`;
+          }
+          return;
+        }
+
+        if (activityUrl) {
+          md += `- ${typeIcon} **[${activityName}](${activityUrl})**`;
+        } else {
+          md += `- ${typeIcon} **${activityName}**`;
+        }
+        if (typeLabel) md += ` _(${typeLabel})_`;
+        md += `\n`;
+
+        const descEl = activity.querySelector('.activity-description, .activity-altcontent .no-overflow');
+        const description = descEl?.textContent?.replace(/\s+/g, ' ')?.trim();
+        if (description && description.length > 5 && description.length < 800) {
+          md += `  - ${description}\n`;
+        }
+      });
+
+      md += `\n`;
+    });
+
+    md += `---\n\n## Tracked Deadlines\n\n`;
+    md += `_To see live deadlines for this course, open the SpectrumX extension._\n\n`;
+    md += `---\n\n*Exported by SpectrumX — ${exportDate}*\n`;
+
+    return { markdown: md, courseCode, courseName: fullTitle };
+  }
+
+  /**
+   * Main export flow.
+   */
+  async function runExport() {
+    const btn = document.getElementById('spectrumx-export-btn');
+    if (btn) btn.classList.add('loading');
+
+    try {
+      const { markdown, courseCode, courseName } = buildCourseMarkdown();
+
+      let copySuccess = false;
+      try {
+        await navigator.clipboard.writeText(markdown);
+        copySuccess = true;
+      } catch (e) {
+        const textarea = document.createElement('textarea');
+        textarea.value = markdown;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+          document.execCommand('copy');
+          copySuccess = true;
+        } catch (e2) {}
+        document.body.removeChild(textarea);
+      }
+
+      showExportModal({ markdown, courseCode, courseName, copySuccess });
+    } catch (err) {
+      showToast(`Export failed: ${err.message}`);
+    } finally {
+      if (btn) btn.classList.remove('loading');
+    }
+  }
+
+  /**
+   * Show the export preview modal with copy/download options.
+   */
+  function showExportModal({ markdown, courseCode, courseName, copySuccess }) {
+    let modal = document.getElementById('spectrumx-export-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'spectrumx-export-modal';
+      modal.className = 'spectrumx-export-modal';
+      document.body.appendChild(modal);
+
+      modal.addEventListener('click', (e) => {
+        if (e.target.matches('[data-action="close-export"]') || e.target === modal) {
+          modal.classList.remove('active');
+        }
+      });
+    }
+
+    const lineCount = markdown.split('\n').length;
+    const charCount = markdown.length;
+
+    modal.innerHTML = `
+      <div class="spectrumx-export-modal-inner">
+        <div class="spectrumx-export-header">
+          <div class="spectrumx-export-header-text">
+            <div class="spectrumx-export-title">📥 Exported to Markdown</div>
+            <div class="spectrumx-export-subtitle">${escapeHtmlExport(courseName)} · ${lineCount} lines · ${charCount.toLocaleString()} chars</div>
+          </div>
+          <button class="spectrumx-export-close" data-action="close-export" aria-label="Close">✕</button>
+        </div>
+
+        ${copySuccess ? `
+          <div class="spectrumx-export-banner success">
+            ✅ Copied to your clipboard! Paste into Notion, Obsidian, Bear, or anywhere.
+          </div>
+        ` : `
+          <div class="spectrumx-export-banner warn">
+            ⚠️ Couldn't auto-copy. Use the buttons below.
+          </div>
+        `}
+
+        <div class="spectrumx-export-actions">
+          <button class="spectrumx-export-action-btn primary" id="spectrumx-copy-md-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+            Copy Again
+          </button>
+          <button class="spectrumx-export-action-btn" id="spectrumx-download-md-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Download .md
+          </button>
+        </div>
+
+        <div class="spectrumx-export-preview-label">Preview</div>
+        <pre class="spectrumx-export-preview"><code>${escapeHtmlExport(markdown)}</code></pre>
+      </div>
+    `;
+
+    modal.classList.add('active');
+
+    document.getElementById('spectrumx-copy-md-btn').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(markdown);
+        showToast('📋 Copied!');
+      } catch (e) {
+        showToast('Copy failed — try the Download button');
+      }
+    });
+
+    document.getElementById('spectrumx-download-md-btn').addEventListener('click', () => {
+      const filename = `${(courseCode || 'course').replace(/[\/\\]/g, '-')}-export-${new Date().toISOString().substring(0, 10)}.md`;
+      const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 100);
+      showToast(`📥 Downloaded: ${filename}`);
+    });
+  }
+
+  function escapeHtmlExport(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+  }
+
+  // ============================================================
   // Forum TL;DR — AI summarization for forum discussions
   // ============================================================
 
@@ -2009,6 +2288,7 @@ Summarize this discussion as a TL;DR for a busy student. Return JSON only.`;
     injectFocusButtons();
     injectSpotlight();
     injectForumSummary();
+    injectExportButton();
     restoreFocusIfNeeded();
 
     // Scrape after delay for Moodle JS to finish rendering
