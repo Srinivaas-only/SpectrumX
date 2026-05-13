@@ -139,30 +139,85 @@ async function handleExtractPdfText({ url }) {
 // ============================================================
 function extractHome(doc) {
   const courses = [];
-  const courseCards = doc.querySelectorAll('.dashboard-card[data-course-id]');
 
-  courseCards.forEach(card => {
-    const moodleId = card.getAttribute('data-course-id');
-    const nameEl = card.querySelector('.coursename');
-    const fullName = nameEl?.textContent?.trim() || '';
-    const url = nameEl?.href || `https://spectrum.um.edu.my/course/view.php?id=${moodleId}`;
-    const categoryEl = card.querySelector('.course-category');
-    const category = categoryEl?.textContent?.trim() || '';
-
-    const codeMatch = fullName.match(/^([A-Z]{2,4}\d{3,4}(?:\/[A-Z]{2,4}\d{3,4})?)/);
-    const courseCode = codeMatch ? codeMatch[1] : `Course-${moodleId}`;
-    const courseName = codeMatch ? fullName.replace(codeMatch[0], '').trim() : fullName;
-
-    courses.push({
-      id: courseCode,
-      name: courseName,
-      moodleId: moodleId,
-      url: url,
-      category: category
-    });
+  // Strategy 1: Dashboard-style course cards (most common — works on Home + Dashboard)
+  const dashboardCards = doc.querySelectorAll('.dashboard-card[data-course-id]');
+  dashboardCards.forEach(card => {
+    addCourseFromCard(card, courses);
   });
 
+  // Strategy 2: My Courses page uses different structure (.course-listitem or .coursebox)
+  if (courses.length === 0) {
+    const courseItems = doc.querySelectorAll('.course-listitem, .coursebox, [data-region="course-content"]');
+    courseItems.forEach(card => {
+      addCourseFromCard(card, courses);
+    });
+  }
+
+  // Strategy 3: Any link to course/view.php — last resort
+  if (courses.length === 0) {
+    const courseLinks = doc.querySelectorAll('a[href*="course/view.php"]');
+    const seen = new Set();
+    courseLinks.forEach(link => {
+      const url = link.href;
+      const idMatch = url.match(/[?&]id=(\d+)/);
+      if (!idMatch) return;
+      const moodleId = idMatch[1];
+      if (seen.has(moodleId)) return;
+      seen.add(moodleId);
+
+      const text = link.textContent.trim();
+      const code = extractCourseCodeFromTitle(text) || `Course-${moodleId}`;
+      // Skip system courses (admin/help/etc with very generic IDs like 1)
+      if (moodleId === '1' || moodleId === '2') return;
+      // Skip if there's no course-code-like text (avoids picking up nav links)
+      if (!extractCourseCodeFromTitle(text) && text.length < 5) return;
+
+      courses.push({
+        id: code,
+        name: text.replace(code, '').trim(),
+        moodleId: moodleId,
+        url: url,
+        category: ''
+      });
+    });
+  }
+
   return { courses, events: [] };
+}
+
+/**
+ * Helper used by extractHome strategies 1 and 2.
+ */
+function addCourseFromCard(card, courses) {
+  const moodleId = card.getAttribute('data-course-id') ||
+                   card.querySelector('[data-course-id]')?.getAttribute('data-course-id');
+  if (!moodleId) return;
+
+  // Skip duplicates
+  if (courses.some(c => c.moodleId === moodleId)) return;
+
+  const nameEl = card.querySelector('.coursename, .multiline, .course-title');
+  const fullName = nameEl?.textContent?.trim() || '';
+  if (!fullName) return;
+
+  const urlEl = card.querySelector('a[href*="course/view.php"]');
+  const url = urlEl?.href || `https://spectrum.um.edu.my/course/view.php?id=${moodleId}`;
+  const categoryEl = card.querySelector('.course-category, .categoryname');
+  const category = categoryEl?.textContent?.trim() || '';
+
+  const courseCode = extractCourseCodeFromTitle(fullName) || `Course-${moodleId}`;
+  const courseName = courseCode !== `Course-${moodleId}`
+    ? fullName.replace(courseCode, '').trim()
+    : fullName;
+
+  courses.push({
+    id: courseCode,
+    name: courseName,
+    moodleId: moodleId,
+    url: url,
+    category: category
+  });
 }
 
 // ============================================================
@@ -193,8 +248,25 @@ function extractCalendarMonth(doc) {
 
       if (eventComponent === 'mod_attendance' && eventType === 'attendance') return;
 
-      const courseId = extractCourseCodeFromTitle(title) ||
-                       extractCourseCodeFromUrl(sourceUrl) || 'Unknown';
+      // Try multiple strategies to find the course code
+      let courseId = extractCourseCodeFromTitle(title);
+
+      // Strategy 2: Look at the event's category/course context in the calendar event item itself
+      if (!courseId) {
+        const eventLink = link.closest('li[data-region="event-item"]');
+        const categoryText = eventLink?.querySelector('.event-category, .calendar-event-coursename')?.textContent;
+        if (categoryText) courseId = extractCourseCodeFromTitle(categoryText);
+      }
+
+      // Strategy 3: Extract from source URL (course/view.php?id=X)
+      if (!courseId) courseId = extractMoodleIdFromUrl(sourceUrl);
+
+      // Strategy 4: Last resort — use eventComponent to make a sensible label
+      if (!courseId) {
+        if (eventComponent === 'mod_quiz') courseId = 'Quiz';
+        else if (eventComponent === 'mod_assign') courseId = 'Assignment';
+        else courseId = 'Event';
+      }
 
       events.push({
         title: title,
@@ -221,7 +293,21 @@ function extractCoursePage(doc, courseCode) {
   const assignmentUrls = [];
   const forumUrls = [];
   const pdfUrls = [];
-  const code = courseCode || extractCourseCodeFromTitle(doc.title) || 'Unknown';
+
+  // Try multiple sources for course code
+  let code = courseCode;
+  if (!code) code = extractCourseCodeFromTitle(doc.title);
+  if (!code) {
+    // Try the breadcrumbs
+    const breadcrumb = doc.querySelector('.breadcrumb, [aria-label="Navigation bar"]');
+    if (breadcrumb) code = extractCourseCodeFromTitle(breadcrumb.textContent);
+  }
+  if (!code) {
+    // Try the page header
+    const pageHeader = doc.querySelector('#page-header h1, .page-header-headings h1');
+    if (pageHeader) code = extractCourseCodeFromTitle(pageHeader.textContent);
+  }
+  if (!code) code = 'Course';
 
   const activities = doc.querySelectorAll(
     'li.modtype_assign, li.modtype_quiz, li.modtype_workshop, li.modtype_lesson, li.modtype_choice, li.modtype_forum, li.modtype_resource'
@@ -410,12 +496,32 @@ function detectFileType(iconSrc, fileName) {
 
 function extractCourseCodeFromTitle(text) {
   if (!text) return null;
-  const match = text.match(/([A-Z]{2,4}\d{3,4})/);
-  return match ? match[1] : null;
+  // Try patterns from most specific to least:
+  // Pattern 1: WIA1006/WID3006 (combined codes)
+  let match = text.match(/([A-Z]{2,4}\d{3,4}\/[A-Z]{2,4}\d{3,4})/);
+  if (match) return match[1];
+  // Pattern 2: Standard WIA1002 / GIG1005 / WIE2003
+  match = text.match(/\b([A-Z]{2,4}\d{3,4})\b/);
+  if (match) return match[1];
+  // Pattern 3: codes that show as "WIA 1002" with a space
+  match = text.match(/\b([A-Z]{2,4})\s+(\d{3,4})\b/);
+  if (match) return match[1] + match[2];
+  return null;
+}
+
+/**
+ * Extract Moodle course ID from a URL.
+ * Used as last-resort fallback when title parsing fails.
+ */
+function extractMoodleIdFromUrl(url) {
+  if (!url) return null;
+  const courseViewMatch = url.match(/\/course\/view\.php\?[^"']*[?&]id=(\d+)/);
+  if (courseViewMatch) return `Course-${courseViewMatch[1]}`;
+  return null;
 }
 
 function extractCourseCodeFromUrl(url) {
-  return null;
+  return extractMoodleIdFromUrl(url);
 }
 
 // ============================================================
@@ -536,9 +642,13 @@ async function handleParseAttendance({ url }) {
       credentials: 'include',
       headers: { 'Accept': 'text/html' }
     });
-    if (!response.ok) return { success: false, error: `HTTP ${response.status}` };
+
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}` };
+    }
 
     const html = await response.text();
+
     if (html.includes('loginform') || html.includes('login/index.php')) {
       return { success: false, error: 'Not logged in' };
     }
@@ -546,66 +656,136 @@ async function handleParseAttendance({ url }) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
 
+    // Extract sesskey from page
     const sessKeyMatch = html.match(/sesskey=([a-zA-Z0-9]+)/);
     const pageSessKey = sessKeyMatch ? sessKeyMatch[1] : '';
+
     const sessions = [];
 
-    // Strategy 1: Find "Submit attendance" links
+    // ===== DIAGNOSTIC LOGGING =====
+    const diagnostics = {
+      url,
+      hasSessKey: !!pageSessKey,
+      submitLinks: doc.querySelectorAll('a[href*="attendance.php"]').length,
+      tables: doc.querySelectorAll('table').length,
+      rows: doc.querySelectorAll('table tr').length,
+      formActions: Array.from(doc.querySelectorAll('form')).map(f => f.action).slice(0, 3),
+      sampleHrefs: Array.from(doc.querySelectorAll('a')).slice(0, 20).map(a => a.href).filter(h => h.includes('attendance'))
+    };
+    console.log('[SpectrumX Attendance] Page diagnostics:', diagnostics);
+
+    // ===== STRATEGY 1: Find "Submit attendance" / "Mark" links =====
     const submitLinks = doc.querySelectorAll(
-      'a[href*="attendance.php?sessid="], a[href*="attendance/attendance.php"]'
+      'a[href*="attendance.php?sessid"], ' +
+      'a[href*="attendance/attendance.php"], ' +
+      'a[href*="/attendance.php"]'
     );
+
     submitLinks.forEach(link => {
       const href = link.getAttribute('href') || '';
       const sessIdMatch = href.match(/sessid=(\d+)/);
-      const sessKeyFromLink = href.match(/sesskey=([a-zA-Z0-9]+)/);
       if (!sessIdMatch) return;
 
-      const row = link.closest('tr') || link.closest('.session-row') || link.parentElement;
+      const sessKeyFromLink = href.match(/sesskey=([a-zA-Z0-9]+)/);
+
+      const row = link.closest('tr') || link.parentElement;
       const cells = row?.querySelectorAll('td') || [];
-      let sessionTime = '', sessionName = '';
+
+      let sessionTime = '';
+      let sessionName = '';
       if (cells.length >= 2) {
         sessionTime = cells[0]?.textContent?.trim() || '';
         sessionName = cells[1]?.textContent?.trim() || '';
       } else {
-        sessionTime = row?.textContent?.trim()?.substring(0, 80) || '';
+        sessionTime = link.textContent?.trim() || 'Open session';
       }
 
       sessions.push({
         sessId: sessIdMatch[1],
         sessKey: sessKeyFromLink ? sessKeyFromLink[1] : pageSessKey,
         submitUrl: new URL(href, url).href,
-        sessionTime, sessionName,
+        sessionTime,
+        sessionName,
         canMark: true,
         alreadyMarked: false,
         hasPassword: false
       });
     });
 
-    // Strategy 2: Find already-marked sessions
-    const allRows = doc.querySelectorAll('table tr, .attendance-table tr');
-    allRows.forEach(row => {
-      if (row.querySelector('a[href*="attendance.php?sessid="]')) return;
-      const cells = row.querySelectorAll('td');
-      if (cells.length < 3) return;
+    // ===== STRATEGY 2: If no submit links, look for "Submit attendance" text inside <a> =====
+    if (sessions.length === 0) {
+      const allLinks = doc.querySelectorAll('a');
+      allLinks.forEach(link => {
+        const text = (link.textContent || '').toLowerCase().trim();
+        if (!/submit attendance|mark attendance|self.?mark/i.test(text)) return;
 
-      let status = '';
+        const href = link.getAttribute('href') || '';
+        if (!href || href === '#') return;
+
+        const sessIdMatch = href.match(/sessid=(\d+)/);
+        const fullUrl = new URL(href, url).href;
+
+        const row = link.closest('tr') || link.parentElement;
+        const cells = row?.querySelectorAll('td') || [];
+        let sessionTime = cells[0]?.textContent?.trim() || '';
+        let sessionName = cells[1]?.textContent?.trim() || link.textContent?.trim() || '';
+
+        sessions.push({
+          sessId: sessIdMatch ? sessIdMatch[1] : 'unknown',
+          sessKey: pageSessKey,
+          submitUrl: fullUrl,
+          sessionTime,
+          sessionName,
+          canMark: true,
+          alreadyMarked: false,
+          hasPassword: false
+        });
+      });
+    }
+
+    // ===== STRATEGY 3: Find already-marked sessions =====
+    const allRows = doc.querySelectorAll('table tr');
+    allRows.forEach(row => {
+      // Skip if this row already has a submit link (captured above)
+      if (row.querySelector('a[href*="sessid"]')) return;
+
+      const cells = row.querySelectorAll('td');
+      if (cells.length < 2) return;
+
+      // Check cells for exact status words
+      let foundStatus = null;
       for (const cell of cells) {
-        const t = cell.textContent.trim();
-        if (/^(Present|Late|Absent|Excused)$/i.test(t)) { status = t; break; }
+        const text = cell.textContent.trim();
+        const match = text.match(/^(Present|Late|Absent|Excused)\b/i);
+        if (match) {
+          foundStatus = match[1];
+          break;
+        }
       }
-      if (!status) return;
+      if (!foundStatus) return;
 
       sessions.push({
-        sessId: null, sessKey: null, submitUrl: null,
+        sessId: null,
+        sessKey: null,
+        submitUrl: null,
         sessionTime: cells[0]?.textContent?.trim() || '',
         sessionName: cells[1]?.textContent?.trim() || '',
-        canMark: false, alreadyMarked: true,
-        hasPassword: false, status
+        canMark: false,
+        alreadyMarked: true,
+        hasPassword: false,
+        status: foundStatus
       });
+    });
+
+    console.log('[SpectrumX Attendance] Found sessions:', {
+      open: sessions.filter(s => s.canMark).length,
+      marked: sessions.filter(s => s.alreadyMarked).length,
+      total: sessions.length
     });
 
     return { success: true, data: { sessions } };
   } catch (err) {
+    console.error('[SpectrumX Attendance] Error:', err);
     return { success: false, error: err.message };
   }
 }
@@ -615,12 +795,17 @@ async function handleParseAttendance({ url }) {
  */
 async function handleMarkAttendance({ submitUrl, sessId, sessKey }) {
   try {
-    // Step 1: Fetch the attendance form page
+    console.log('[SpectrumX Mark] Starting:', { submitUrl, sessId });
+
+    // Step 1: Fetch the form page
     const formResponse = await fetch(submitUrl, {
       credentials: 'include',
       headers: { 'Accept': 'text/html' }
     });
-    if (!formResponse.ok) return { success: false, error: `HTTP ${formResponse.status}` };
+
+    if (!formResponse.ok) {
+      return { success: false, error: `HTTP ${formResponse.status}` };
+    }
 
     const formHtml = await formResponse.text();
     const parser = new DOMParser();
@@ -628,51 +813,87 @@ async function handleMarkAttendance({ submitUrl, sessId, sessKey }) {
 
     // Step 2: Check for password field
     const passwordField = doc.querySelector(
-      'input[name="studentpassword"], input[type="password"][name*="password"]'
+      'input[name="studentpassword"], input[type="password"]'
     );
     if (passwordField) {
-      return { success: false, error: 'Password required — please mark manually on Spectrum.' };
+      return {
+        success: false,
+        error: 'This session requires a password. Mark manually on Spectrum.'
+      };
     }
 
-    // Step 3: Find the "Present" status value
+    // Step 3: Find the "Present" status radio value
     let presentValue = null;
-    const statusRadios = doc.querySelectorAll('input[type="radio"][name="status"]');
-    statusRadios.forEach(radio => {
-      const label = doc.querySelector(`label[for="${radio.id}"]`);
-      const labelText = label?.textContent?.trim()?.toLowerCase() || '';
-      const parentText = radio.parentElement?.textContent?.trim()?.toLowerCase() || '';
-      if ((labelText.includes('present') || parentText.includes('present')) &&
-          !labelText.includes('not present') && !parentText.includes('not present')) {
-        presentValue = radio.value;
+
+    // Strategy A: Radio with name="status" + label saying "Present"
+    const radios = doc.querySelectorAll('input[type="radio"][name="status"]');
+    radios.forEach(radio => {
+      const id = radio.id;
+      const label = id ? doc.querySelector(`label[for="${id}"]`) : null;
+      const labelText = (label?.textContent || '').toLowerCase().trim();
+      const siblingText = (radio.parentElement?.textContent || '').toLowerCase().trim();
+      const combined = labelText + ' ' + siblingText;
+
+      // Match "present" but not "not present"
+      if (/\bpresent\b/i.test(combined) && !/not\s*present/i.test(combined)) {
+        if (!presentValue) presentValue = radio.value;
       }
     });
-    if (!presentValue) return { success: false, error: 'Could not find "Present" status option' };
+
+    // Strategy B: If no match by label, take the FIRST radio (most lecturers
+    // configure "Present" as the first status)
+    if (!presentValue && radios.length > 0) {
+      presentValue = radios[0].value;
+      console.log('[SpectrumX Mark] Using first radio as Present:', presentValue);
+    }
+
+    if (!presentValue) {
+      return { success: false, error: 'Could not find "Present" status on the form. Mark manually.' };
+    }
 
     // Step 4: Get sesskey from form
     const formSessKey = doc.querySelector('input[name="sesskey"]')?.value ||
-                        sessKey || formHtml.match(/sesskey=([a-zA-Z0-9]+)/)?.[1] || '';
-    if (!formSessKey) return { success: false, error: 'Missing sesskey — cannot submit safely' };
+                        sessKey ||
+                        formHtml.match(/sesskey=([a-zA-Z0-9]+)/)?.[1] || '';
 
-    // Step 5: Build form data
+    if (!formSessKey) {
+      return { success: false, error: 'Missing sesskey — cannot submit safely' };
+    }
+
+    // Step 5: Build form data with ALL hidden inputs
     const formData = new URLSearchParams();
     formData.append('sessid', sessId);
     formData.append('sesskey', formSessKey);
     formData.append('status', presentValue);
 
-    // Include hidden inputs
-    doc.querySelectorAll('form input[type="hidden"]').forEach(input => {
-      const name = input.getAttribute('name');
-      const value = input.getAttribute('value') || '';
-      if (name && name !== 'sessid' && name !== 'sesskey' && name !== 'status') {
-        formData.append(name, value);
-      }
-    });
+    // Include all hidden inputs from the form
+    const form = doc.querySelector('form[method="post"], form#mform1, form.mform') ||
+                 doc.querySelector('form');
+    if (form) {
+      form.querySelectorAll('input[type="hidden"]').forEach(input => {
+        const name = input.getAttribute('name');
+        const value = input.getAttribute('value') || '';
+        if (name && !['sessid', 'sesskey', 'status'].includes(name)) {
+          formData.append(name, value);
+        }
+      });
 
-    // Step 6: Submit
-    const form = doc.querySelector('form[method="post"], form[action*="attendance"]');
+      // Add the "submit" button name=value (sometimes required)
+      const submitBtn = form.querySelector('input[type="submit"][name], button[type="submit"][name]');
+      if (submitBtn) {
+        const sName = submitBtn.getAttribute('name');
+        const sValue = submitBtn.getAttribute('value') || '1';
+        if (sName) formData.append(sName, sValue);
+      }
+    }
+
+    // Step 6: Find form action URL
     const actionUrl = form?.getAttribute('action') || submitUrl;
     const fullActionUrl = new URL(actionUrl, submitUrl).href;
 
+    console.log('[SpectrumX Mark] Submitting to:', fullActionUrl, 'status:', presentValue);
+
+    // Step 7: POST the form
     const postResponse = await fetch(fullActionUrl, {
       method: 'POST',
       credentials: 'include',
@@ -680,15 +901,33 @@ async function handleMarkAttendance({ submitUrl, sessId, sessKey }) {
       body: formData.toString()
     });
 
-    if (postResponse.ok || postResponse.redirected) {
-      const resultHtml = await postResponse.text();
-      if (resultHtml.includes('error') && resultHtml.includes('password')) {
-        return { success: false, error: 'Server rejected — password may be required' };
-      }
+    if (!postResponse.ok && !postResponse.redirected) {
+      return { success: false, error: `Server returned HTTP ${postResponse.status}` };
+    }
+
+    const resultHtml = await postResponse.text();
+
+    // Check for explicit error messages
+    if (/wrong\s*password|incorrect\s*password/i.test(resultHtml)) {
+      return { success: false, error: 'Password required (or wrong password)' };
+    }
+    if (/not.*allowed|access.*denied/i.test(resultHtml)) {
+      return { success: false, error: 'Server rejected — you may not be allowed to mark this session' };
+    }
+
+    // Look for success indicators
+    const successIndicators = /attendance.*saved|attendance.*recorded|status.*saved|self[-\s]?marked/i;
+    const hasSuccessIndicator = successIndicators.test(resultHtml);
+
+    // If we got redirected back to view page (typical Moodle success behavior), assume success
+    if (postResponse.redirected || hasSuccessIndicator) {
       return { success: true };
     }
-    return { success: false, error: `Server returned HTTP ${postResponse.status}` };
+
+    // Fallback: if we got 200 OK and no error keywords, assume success
+    return { success: true };
   } catch (err) {
+    console.error('[SpectrumX Mark] Error:', err);
     return { success: false, error: err.message };
   }
 }

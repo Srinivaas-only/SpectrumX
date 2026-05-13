@@ -352,3 +352,35 @@ chrome.notifications.onClicked.addListener(async (notificationId) => {
     }
   }
 });
+
+// ============================================================
+// Helper functions
+// ============================================================
+
+/**
+ * Merge two event arrays with dedup by courseId + title + date.
+ */
+function mergeEvents(existing, incoming) {
+  const all = [...existing, ...incoming];
+  const seen = new Set();
+  return all.filter(evt => {
+    if (!evt || !evt.date || !evt.title) return false;
+    const key = `${evt.courseId || 'X'}-${evt.title.toLowerCase().trim()}-${evt.date.substring(0, 10)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Dedupe courses by id.
+ */
+function dedupeCourses(courses) {
+  const seen = new Set();
+  return courses.filter(c => {
+    if (!c || !c.id) return false;
+    if (seen.has(c.id)) return false;
+    seen.add(c.id);
+    return true;
+  });
+}

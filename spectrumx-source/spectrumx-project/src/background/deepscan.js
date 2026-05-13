@@ -64,41 +64,78 @@ class DeepScanner {
     this.scannedUrls = [];
     this.errors = [];
 
-    // Phase 1: Home page → enrolled courses
+    // Phase 1: Home page → courses
     onProgress?.({ phase: 'home', message: 'Finding your courses...' });
     const homeData = await this.fetchAndParse('https://spectrum.um.edu.my/', 'home');
-    if (homeData) {
-      this.courses = homeData.courses || [];
+    if (homeData?.courses?.length > 0) {
+      this.courses = homeData.courses;
     }
 
-    // Phase 2: Calendar month view → all calendar events
+    // Phase 1b: Fallback to /my/courses.php if home page didn't find courses
+    if (this.courses.length === 0) {
+      onProgress?.({ phase: 'home', message: 'Trying My Courses page...' });
+      const myCoursesData = await this.fetchAndParse(
+        'https://spectrum.um.edu.my/my/courses.php',
+        'home'
+      );
+      if (myCoursesData?.courses?.length > 0) {
+        this.courses = myCoursesData.courses;
+      }
+    }
+
+    // Phase 1c: Final fallback — fetch dashboard which has course list cached
+    if (this.courses.length === 0) {
+      onProgress?.({ phase: 'home', message: 'Trying Dashboard...' });
+      const dashData = await this.fetchAndParse('https://spectrum.um.edu.my/my/', 'home');
+      if (dashData?.courses?.length > 0) {
+        this.courses = dashData.courses;
+      }
+    }
+
+    console.log('[SpectrumX] Found courses:', this.courses.map(c => c.id));
+
+    // Phase 2: Calendar month view
     onProgress?.({ phase: 'calendar', message: 'Scanning calendar...' });
     const calData = await this.fetchAndParse(
       'https://spectrum.um.edu.my/calendar/view.php?view=month',
       'calendar-month'
     );
-    if (calData) this.events.push(...(calData.events || []));
+    if (calData?.events) this.events.push(...calData.events);
 
-    // Phase 3: Each course page → assignments with embedded dates
-    for (let i = 0; i < this.courses.length; i++) {
-      const course = this.courses[i];
-      onProgress?.({
-        phase: 'courses',
-        message: `Scanning ${course.id} (${i + 1}/${this.courses.length})...`
+    // Phase 3: Each course page in PARALLEL (faster + more reliable)
+    if (this.courses.length > 0) {
+      const courseScanPromises = this.courses.map(async (course, idx) => {
+        onProgress?.({
+          phase: 'courses',
+          message: `Scanning ${course.id} (${idx + 1}/${this.courses.length})...`,
+          progress: Math.round(((idx + 1) / this.courses.length) * 80) + 15
+        });
+        try {
+          const courseData = await this.fetchAndParse(course.url, 'course', course.id);
+          if (courseData?.events) {
+            return courseData.events;
+          }
+        } catch (err) {
+          console.error('[SpectrumX] Course scan failed for', course.id, err);
+          this.errors.push({ url: course.url, message: err.message });
+        }
+        return [];
       });
 
-      const courseData = await this.fetchAndParse(course.url, 'course', course.id);
-      if (courseData) {
-        this.events.push(...(courseData.events || []));
-      }
-      await this.delay(250);
+      const courseResults = await Promise.all(courseScanPromises);
+      courseResults.forEach(events => this.events.push(...events));
     }
 
-    // Cleanup
     try { await chrome.offscreen.closeDocument(); } catch (e) {}
 
     this.cleanInvalidEvents();
     this.deduplicateEvents();
+
+    console.log('[SpectrumX] DeepScan complete:', {
+      courses: this.courses.length,
+      events: this.events.length,
+      errors: this.errors.length
+    });
 
     return {
       events: this.events,
@@ -242,7 +279,7 @@ class DeepScanner {
       return { events: [], scannedUrls: this.scannedUrls, errors: this.errors };
     }
 
-    const pdfUrls = (courseData.pdfUrls || []).slice(0, 8);
+    const pdfUrls = courseData.pdfUrls || []; // No limit — scan all PDFs on the course
     const courseCode = courseData.events?.[0]?.courseId ||
       this.extractCourseFromUrl(courseUrl) || 'Unknown';
 
