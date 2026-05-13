@@ -9,7 +9,7 @@
 .spectrumx-fab-container {
   position: fixed;
   bottom: 24px;
-  right: 24px;
+  left: 24px;
   z-index: 99999;
   display: flex;
   flex-direction: column-reverse;
@@ -120,7 +120,7 @@
 .spectrumx-fab-menu-item:hover {
   background: rgba(108, 92, 231, 0.15);
   border-color: rgba(108, 92, 231, 0.4);
-  transform: translateX(-4px);
+  transform: translateX(4px);
 }
 
 /* ============================================================
@@ -129,7 +129,7 @@
 .spectrumx-toast {
   position: fixed;
   bottom: 96px;
-  right: 24px;
+  left: 24px;
   z-index: 99999;
   padding: 12px 20px;
   border-radius: 12px;
