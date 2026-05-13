@@ -18,6 +18,12 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('lib/pdf.worker.m
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.target !== 'offscreen') return;
 
+  // Attendance-specific parsing (must be before generic PARSE_HTML)
+  if (message.type === 'PARSE_HTML' && message.payload.extractType === 'attendance') {
+    handleParseAttendance(message.payload).then(sendResponse);
+    return true;
+  }
+
   if (message.type === 'PARSE_HTML') {
     handleParseHtml(message.payload).then(sendResponse);
     return true;
@@ -25,6 +31,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'EXTRACT_PDF_TEXT') {
     handleExtractPdfText(message.payload).then(sendResponse);
+    return true;
+  }
+
+  if (message.type === 'MARK_ATTENDANCE') {
+    handleMarkAttendance(message.payload).then(sendResponse);
     return true;
   }
 });
@@ -392,6 +403,172 @@ function inferTypeFromComponent(component, title) {
   if (/\bproject\b/.test(lower)) return 'project';
   if (/\bassign|\bsubmission|\bsubmit|\bdue\b|\bdeadline/.test(lower)) return 'assignment';
   return 'other';
+}
+
+/**
+ * Parse an attendance view page to find open sessions.
+ */
+async function handleParseAttendance({ url }) {
+  try {
+    const response = await fetch(url, {
+      credentials: 'include',
+      headers: { 'Accept': 'text/html' }
+    });
+    if (!response.ok) return { success: false, error: `HTTP ${response.status}` };
+
+    const html = await response.text();
+    if (html.includes('loginform') || html.includes('login/index.php')) {
+      return { success: false, error: 'Not logged in' };
+    }
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+
+    const sessKeyMatch = html.match(/sesskey=([a-zA-Z0-9]+)/);
+    const pageSessKey = sessKeyMatch ? sessKeyMatch[1] : '';
+    const sessions = [];
+
+    // Strategy 1: Find "Submit attendance" links
+    const submitLinks = doc.querySelectorAll(
+      'a[href*="attendance.php?sessid="], a[href*="attendance/attendance.php"]'
+    );
+    submitLinks.forEach(link => {
+      const href = link.getAttribute('href') || '';
+      const sessIdMatch = href.match(/sessid=(\d+)/);
+      const sessKeyFromLink = href.match(/sesskey=([a-zA-Z0-9]+)/);
+      if (!sessIdMatch) return;
+
+      const row = link.closest('tr') || link.closest('.session-row') || link.parentElement;
+      const cells = row?.querySelectorAll('td') || [];
+      let sessionTime = '', sessionName = '';
+      if (cells.length >= 2) {
+        sessionTime = cells[0]?.textContent?.trim() || '';
+        sessionName = cells[1]?.textContent?.trim() || '';
+      } else {
+        sessionTime = row?.textContent?.trim()?.substring(0, 80) || '';
+      }
+
+      sessions.push({
+        sessId: sessIdMatch[1],
+        sessKey: sessKeyFromLink ? sessKeyFromLink[1] : pageSessKey,
+        submitUrl: new URL(href, url).href,
+        sessionTime, sessionName,
+        canMark: true,
+        alreadyMarked: false,
+        hasPassword: false
+      });
+    });
+
+    // Strategy 2: Find already-marked sessions
+    const allRows = doc.querySelectorAll('table tr, .attendance-table tr');
+    allRows.forEach(row => {
+      if (row.querySelector('a[href*="attendance.php?sessid="]')) return;
+      const cells = row.querySelectorAll('td');
+      if (cells.length < 3) return;
+
+      let status = '';
+      for (const cell of cells) {
+        const t = cell.textContent.trim();
+        if (/^(Present|Late|Absent|Excused)$/i.test(t)) { status = t; break; }
+      }
+      if (!status) return;
+
+      sessions.push({
+        sessId: null, sessKey: null, submitUrl: null,
+        sessionTime: cells[0]?.textContent?.trim() || '',
+        sessionName: cells[1]?.textContent?.trim() || '',
+        canMark: false, alreadyMarked: true,
+        hasPassword: false, status
+      });
+    });
+
+    return { success: true, data: { sessions } };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Mark attendance as Present by fetching form, finding status value, POSTing.
+ */
+async function handleMarkAttendance({ submitUrl, sessId, sessKey }) {
+  try {
+    // Step 1: Fetch the attendance form page
+    const formResponse = await fetch(submitUrl, {
+      credentials: 'include',
+      headers: { 'Accept': 'text/html' }
+    });
+    if (!formResponse.ok) return { success: false, error: `HTTP ${formResponse.status}` };
+
+    const formHtml = await formResponse.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(formHtml, 'text/html');
+
+    // Step 2: Check for password field
+    const passwordField = doc.querySelector(
+      'input[name="studentpassword"], input[type="password"][name*="password"]'
+    );
+    if (passwordField) {
+      return { success: false, error: 'Password required — please mark manually on Spectrum.' };
+    }
+
+    // Step 3: Find the "Present" status value
+    let presentValue = null;
+    const statusRadios = doc.querySelectorAll('input[type="radio"][name="status"]');
+    statusRadios.forEach(radio => {
+      const label = doc.querySelector(`label[for="${radio.id}"]`);
+      const labelText = label?.textContent?.trim()?.toLowerCase() || '';
+      const parentText = radio.parentElement?.textContent?.trim()?.toLowerCase() || '';
+      if ((labelText.includes('present') || parentText.includes('present')) &&
+          !labelText.includes('not present') && !parentText.includes('not present')) {
+        presentValue = radio.value;
+      }
+    });
+    if (!presentValue) return { success: false, error: 'Could not find "Present" status option' };
+
+    // Step 4: Get sesskey from form
+    const formSessKey = doc.querySelector('input[name="sesskey"]')?.value ||
+                        sessKey || formHtml.match(/sesskey=([a-zA-Z0-9]+)/)?.[1] || '';
+    if (!formSessKey) return { success: false, error: 'Missing sesskey — cannot submit safely' };
+
+    // Step 5: Build form data
+    const formData = new URLSearchParams();
+    formData.append('sessid', sessId);
+    formData.append('sesskey', formSessKey);
+    formData.append('status', presentValue);
+
+    // Include hidden inputs
+    doc.querySelectorAll('form input[type="hidden"]').forEach(input => {
+      const name = input.getAttribute('name');
+      const value = input.getAttribute('value') || '';
+      if (name && name !== 'sessid' && name !== 'sesskey' && name !== 'status') {
+        formData.append(name, value);
+      }
+    });
+
+    // Step 6: Submit
+    const form = doc.querySelector('form[method="post"], form[action*="attendance"]');
+    const actionUrl = form?.getAttribute('action') || submitUrl;
+    const fullActionUrl = new URL(actionUrl, submitUrl).href;
+
+    const postResponse = await fetch(fullActionUrl, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString()
+    });
+
+    if (postResponse.ok || postResponse.redirected) {
+      const resultHtml = await postResponse.text();
+      if (resultHtml.includes('error') && resultHtml.includes('password')) {
+        return { success: false, error: 'Server rejected — password may be required' };
+      }
+      return { success: true };
+    }
+    return { success: false, error: `Server returned HTTP ${postResponse.status}` };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 }
 
 /**

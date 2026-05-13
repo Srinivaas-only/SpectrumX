@@ -1078,7 +1078,7 @@
           <button class="spectrumx-fab-menu-item" data-action="refresh">🔄 Refresh Data</button>
           <button class="spectrumx-fab-menu-item" data-action="reader-mode">🧘 Reader Mode</button>
           <button class="spectrumx-fab-menu-item" data-action="spotlight">🔍 Spotlight Search</button>
-          <button class="spectrumx-fab-menu-item" data-action="attendance">✅ Quick Attendance</button>
+          <button class="spectrumx-fab-menu-item" data-action="attendance">✅ Attendance</button>
         </div>
       </div>
     `;
@@ -1135,7 +1135,7 @@
           setTimeout(() => document.getElementById('spectrumx-spotlight-input')?.focus(), 50);
           break;
         case 'attendance':
-          quickAttendance();
+          document.getElementById('spectrumx-attendance-panel')?.classList.toggle('active');
           break;
       }
     });
@@ -1686,255 +1686,197 @@
   }
 
   // ============================================================
-  // Quick Attendance — scan all courses for open attendance sessions
+  // Attendance Panel — detect open sessions, one-click mark
   // ============================================================
 
   /**
-   * Scan all enrolled courses for open attendance sessions.
-   * Fetches each course page → finds attendance module links →
-   * checks each for self-marking forms → shows results.
+   * Detect attendance activities on course pages and inject
+   * a floating attendance panel showing open sessions.
    */
-  async function quickAttendance() {
-    // Ensure courses are detected
-    registry.detect();
-    const courses = registry.toArray();
-
-    if (courses.length === 0) {
-      showToast('No courses detected — try visiting your dashboard first');
-      return;
-    }
-
-    showToast(`🔍 Scanning ${courses.length} courses for attendance...`);
-    showAttendanceCard({ loading: true, courseCount: courses.length });
-
-    const openSessions = [];
-
-    for (const course of courses) {
-      try {
-        const courseHtml = await fetchPage(course.url);
-        if (!courseHtml) continue;
-
-        const doc = new DOMParser().parseFromString(courseHtml, 'text/html');
-
-        // Find all attendance module links on this course page
-        const attendanceLinks = doc.querySelectorAll('a[href*="mod/attendance"]');
-        for (const link of attendanceLinks) {
-          const href = link.href || link.getAttribute('href');
-          if (!href) continue;
-
-          // Only check view.php links (not grade/export etc.)
-          if (!href.includes('/view.php') && !href.includes('/attendance.php')) continue;
-
-          // Fetch the attendance page
-          const attHtml = await fetchPage(href);
-          if (!attHtml) continue;
-
-          const attDoc = new DOMParser().parseFromString(attHtml, 'text/html');
-
-          // Check for self-marking form — Moodle attendance uses:
-          // - form with action containing mod/attendance
-          // - status selection buttons/radio (Present, Late, Excused, Absent)
-          // - OR a "Submit attendance" button
-          const hasStatusForm = attDoc.querySelector(
-            'form[action*="attendance"] input[type="radio"], ' +
-            'form[action*="attendance"] button[type="submit"], ' +
-            'form[action*="attendance"] .attendancestatus, ' +
-            'input[name="status"], ' +
-            'button[name="submitbutton"], ' +
-            '.attsubmit button, ' +
-            'form.attendanceform'
-          );
-
-          // Also check for session links that might lead to self-marking
-          const sessionLinks = attDoc.querySelectorAll('a[href*="sessions"]');
-          let selfMarkUrl = null;
-
-          if (hasStatusForm) {
-            // There's a form directly on this page
-            selfMarkUrl = href;
-          } else {
-            // Check if there are session links we should follow
-            for (const sLink of sessionLinks) {
-              const sHref = sLink.href || sLink.getAttribute('href');
-              if (!sHref) continue;
-              // Look for "take" or "selfmark" or "submit" type links
-              if (/take|selfmark|submit|record/i.test(sHref) || /Take attendance|Submit|Mark/i.test(sLink.textContent)) {
-                selfMarkUrl = sHref;
-                break;
-              }
-            }
-
-            // Also check for direct links to self-marking pages
-            if (!selfMarkUrl) {
-              const takeLinks = attDoc.querySelectorAll('a[href*="take"], a[href*="selfmark"]');
-              for (const tLink of takeLinks) {
-                const tHref = tLink.href || tLink.getAttribute('href');
-                if (tHref) {
-                  selfMarkUrl = tHref;
-                  break;
-                }
-              }
-            }
-
-            // Check if page text suggests open session
-            if (!selfMarkUrl) {
-              const pageText = attDoc.body?.textContent || '';
-              if (/self[\s-]?mark|submit your attendance|record your attendance/i.test(pageText)) {
-                // There might be a session open but we couldn't find the exact form
-                selfMarkUrl = href;
-              }
-            }
-          }
-
-          if (selfMarkUrl || hasStatusForm) {
-            const courseCode = course.id || 'Course';
-            const courseName = course.name || courseCode;
-            const activityName = link.textContent?.trim() || 'Attendance';
-
-            openSessions.push({
-              courseCode,
-              courseName,
-              activityName,
-              url: selfMarkUrl || href,
-              hasForm: !!hasStatusForm
-            });
-          }
-        }
-      } catch (err) {
-        console.warn(`[SpectrumX] Attendance scan error on ${course.id}:`, err.message);
-      }
-
-      // Small delay between course fetches
-      await new Promise(r => setTimeout(r, 300));
-    }
-
-    if (openSessions.length === 0) {
-      showAttendanceCard({ empty: true, courseCount: courses.length });
-    } else {
-      showAttendanceCard({ sessions: openSessions });
-    }
-  }
-
-  /**
-   * Helper: fetch a page with credentials.
-   */
-  async function fetchPage(url) {
-    try {
-      const resp = await fetch(url, { credentials: 'include' });
-      if (!resp.ok) return null;
-      return await resp.text();
-    } catch (e) {
-      return null;
-    }
-  }
-
-  /**
-   * Show the attendance results card.
-   */
-  function showAttendanceCard({ loading, empty, sessions, courseCount }) {
-    let card = document.getElementById('spectrumx-attendance-card');
-    if (!card) {
-      card = document.createElement('div');
-      card.id = 'spectrumx-attendance-card';
-      card.className = 'spectrumx-attendance-card';
-      document.body.appendChild(card);
-
-      card.addEventListener('click', (e) => {
-        if (e.target.matches('[data-action="close-attendance"]')) {
-          card.classList.remove('active');
-        }
-      });
-    }
-
-    let inner;
-    if (loading) {
-      inner = `
-        <div class="spectrumx-attendance-header">
-          <span class="spectrumx-attendance-icon">✅</span>
-          <span class="spectrumx-attendance-title">Scanning ${courseCount} courses...</span>
-          <button class="spectrumx-attendance-close" data-action="close-attendance" aria-label="Close">✕</button>
-        </div>
-        <div class="spectrumx-attendance-loading">
-          <div class="spectrumx-attendance-pulse"></div>
-          <div class="spectrumx-attendance-pulse"></div>
-          <div class="spectrumx-attendance-pulse"></div>
-        </div>
-      `;
-    } else if (empty) {
-      inner = `
-        <div class="spectrumx-attendance-header">
-          <span class="spectrumx-attendance-icon">✅</span>
-          <span class="spectrumx-attendance-title">Attendance Scan</span>
-          <button class="spectrumx-attendance-close" data-action="close-attendance" aria-label="Close">✕</button>
-        </div>
-        <div class="spectrumx-attendance-empty">
-          <div class="spectrumx-attendance-empty-icon">🕐</div>
-          <div class="spectrumx-attendance-empty-text">No open attendance sessions found</div>
-          <div class="spectrumx-attendance-empty-hint">Scanned ${courseCount} courses. Sessions may not be open yet — try again in a minute.</div>
-        </div>
-      `;
-    } else if (sessions) {
-      const sessionItems = sessions.map(s => `
-        <a href="${escapeHtmlAtt(s.url)}" target="_blank" class="spectrumx-attendance-session" title="Open: ${escapeHtmlAtt(s.activityName)}">
-          <div class="spectrumx-attendance-session-icon">${s.hasForm ? '🟢' : '🟡'}</div>
-          <div class="spectrumx-attendance-session-content">
-            <div class="spectrumx-attendance-session-name">${escapeHtmlAtt(s.activityName)}</div>
-            <div class="spectrumx-attendance-session-course">${escapeHtmlAtt(s.courseName)}</div>
-          </div>
-          <div class="spectrumx-attendance-session-go">→</div>
-        </a>
-      `).join('');
-
-      inner = `
-        <div class="spectrumx-attendance-header">
-          <span class="spectrumx-attendance-icon">✅</span>
-          <span class="spectrumx-attendance-title">${sessions.length} Open Session${sessions.length > 1 ? 's' : ''}</span>
-          <button class="spectrumx-attendance-close" data-action="close-attendance" aria-label="Close">✕</button>
-        </div>
-        <div class="spectrumx-attendance-sessions">
-          ${sessionItems}
-        </div>
-        <div class="spectrumx-attendance-footer">
-          ${sessions.some(s => s.hasForm) ? '🟢 Self-mark form detected' : '🟡 Click to check for form'}
-        </div>
-      `;
-    }
-
-    card.innerHTML = inner;
-    card.classList.add('active');
-  }
-
-  /**
-   * Auto-highlight attendance activities on course pages.
-   * Adds a green glow to attendance modules so students spot them instantly.
-   */
-  function highlightAttendanceOnPage() {
+  function injectAttendancePanel() {
     if (!window.location.pathname.includes('/course/view.php')) return;
+    if (document.getElementById('spectrumx-attendance-panel')) return;
 
-    const activities = document.querySelectorAll('.activity.modtype_attendance, .activity-wrapper.modtype_attendance');
-    activities.forEach(act => {
-      if (act.classList.contains('spectrumx-attendance-highlighted')) return;
-      act.classList.add('spectrumx-attendance-highlighted');
+    const attendanceActivities = document.querySelectorAll('li.modtype_attendance');
+    if (attendanceActivities.length === 0) return;
 
-      // Add a quick "→ Open" link to the attendance name
-      const link = act.querySelector('a[href*="mod/attendance"]');
-      if (link) {
-        const badge = document.createElement('span');
-        badge.className = 'spectrumx-attendance-badge';
-        badge.textContent = '✅ Attendance';
-        link.parentNode.insertBefore(badge, link.nextSibling);
+    const attendanceUrls = [];
+    attendanceActivities.forEach(activity => {
+      const link = activity.querySelector('a.aalink, a.stretched-link');
+      const nameEl = activity.querySelector('[data-activityname]');
+      const name = nameEl?.getAttribute('data-activityname')?.trim() || 'Attendance';
+      const url = link?.href || '';
+      if (url && url.includes('mod/attendance/view.php')) {
+        attendanceUrls.push({ name, url });
       }
     });
 
-    // On attendance view page — scroll to and highlight submit form
-    if (window.location.pathname.includes('/mod/attendance')) {
-      const form = document.querySelector(
-        'form[action*="attendance"], .attsubmit, form.attendanceform'
-      );
-      if (form) {
-        form.classList.add('spectrumx-attendance-form-highlight');
-        form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (attendanceUrls.length === 0) return;
+    createAttendancePanel(attendanceUrls);
+  }
+
+  function createAttendancePanel(attendanceUrls) {
+    const panel = document.createElement('div');
+    panel.id = 'spectrumx-attendance-panel';
+    panel.className = 'spectrumx-attendance-panel';
+    panel.innerHTML = `
+      <div class="spectrumx-att-header">
+        <span class="spectrumx-att-icon">✅</span>
+        <span class="spectrumx-att-title">Attendance</span>
+        <span class="spectrumx-att-count" id="spectrumx-att-count">Checking...</span>
+        <button class="spectrumx-att-close" id="spectrumx-att-close" aria-label="Close">✕</button>
+      </div>
+      <div class="spectrumx-att-body" id="spectrumx-att-body">
+        <div class="spectrumx-att-loading">
+          <div class="spectrumx-att-pulse"></div>
+          <div class="spectrumx-att-pulse"></div>
+          <div class="spectrumx-att-pulse"></div>
+          <span class="spectrumx-att-loading-text">Scanning for open sessions...</span>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(panel);
+
+    document.getElementById('spectrumx-att-close').addEventListener('click', () => {
+      panel.classList.remove('active');
+    });
+
+    scanAttendanceSessions(attendanceUrls);
+  }
+
+  async function scanAttendanceSessions(attendanceUrls) {
+    const body = document.getElementById('spectrumx-att-body');
+    const countEl = document.getElementById('spectrumx-att-count');
+    const allSessions = [];
+
+    for (const att of attendanceUrls) {
+      try {
+        const response = await chrome.runtime.sendMessage({
+          target: 'offscreen',
+          type: 'PARSE_HTML',
+          payload: { url: att.url, extractType: 'attendance', courseCode: att.name }
+        });
+        if (response?.success && response.data?.sessions) {
+          response.data.sessions.forEach(sess => { sess.attendanceName = att.name; });
+          allSessions.push(...response.data.sessions);
+        }
+      } catch (err) {
+        console.error('[SpectrumX] Attendance scan error:', err);
       }
+    }
+
+    renderAttendanceSessions(allSessions, body, countEl);
+  }
+
+  function renderAttendanceSessions(sessions, body, countEl) {
+    const open = sessions.filter(s => s.canMark && !s.alreadyMarked);
+    const marked = sessions.filter(s => s.alreadyMarked);
+
+    if (open.length === 0 && marked.length === 0) {
+      countEl.textContent = 'No sessions';
+      body.innerHTML = `
+        <div class="spectrumx-att-empty">
+          <div class="spectrumx-att-empty-icon">📋</div>
+          <div class="spectrumx-att-empty-text">No attendance sessions found</div>
+          <div class="spectrumx-att-empty-hint">Check back when a session is open</div>
+        </div>`;
+      return;
+    }
+
+    countEl.textContent = open.length > 0 ? `${open.length} open` : 'All marked ✓';
+    let html = '';
+
+    if (open.length > 0) {
+      html += `<div class="spectrumx-att-section-label">⏰ Open Sessions — Mark Now</div>`;
+      open.forEach(sess => {
+        html += `
+          <div class="spectrumx-att-session open" data-sessid="${escapeHtmlAtt(sess.sessId)}" data-sesskey="${escapeHtmlAtt(sess.sessKey)}" data-submit-url="${escapeHtmlAtt(sess.submitUrl)}" data-has-password="${sess.hasPassword}">
+            <div class="spectrumx-att-session-info">
+              <div class="spectrumx-att-session-name">${escapeHtmlAtt(sess.sessionName || sess.attendanceName)}</div>
+              <div class="spectrumx-att-session-time">${escapeHtmlAtt(sess.sessionTime || '')}</div>
+            </div>
+            ${sess.hasPassword ? `
+              <button class="spectrumx-att-mark-btn password" disabled title="Password required">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+                Password Required
+              </button>
+            ` : `
+              <button class="spectrumx-att-mark-btn" data-action="mark-present" title="Mark as Present">✓ Mark Present</button>
+            `}
+          </div>`;
+      });
+    }
+
+    if (marked.length > 0) {
+      html += `<div class="spectrumx-att-section-label">✅ Already Marked</div>`;
+      marked.forEach(sess => {
+        html += `
+          <div class="spectrumx-att-session marked">
+            <div class="spectrumx-att-session-info">
+              <div class="spectrumx-att-session-name">${escapeHtmlAtt(sess.sessionName || sess.attendanceName)}</div>
+              <div class="spectrumx-att-session-time">${escapeHtmlAtt(sess.sessionTime || '')}</div>
+            </div>
+            <span class="spectrumx-att-status">${escapeHtmlAtt(sess.status || 'Present')}</span>
+          </div>`;
+      });
+    }
+
+    body.innerHTML = html;
+
+    // Bind "Mark Present" buttons
+    body.querySelectorAll('[data-action="mark-present"]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const sessionEl = e.target.closest('.spectrumx-att-session');
+        const submitUrl = sessionEl.dataset.submitUrl;
+        const sessId = sessionEl.dataset.sessid;
+        const sessKey = sessionEl.dataset.sesskey;
+
+        btn.disabled = true;
+        btn.textContent = 'Marking...';
+        btn.classList.add('loading');
+
+        try {
+          const result = await markAttendancePresent(submitUrl, sessId, sessKey);
+          if (result.success) {
+            btn.textContent = '✓ Marked!';
+            btn.classList.remove('loading');
+            btn.classList.add('success');
+            sessionEl.classList.remove('open');
+            sessionEl.classList.add('marked');
+            showToast('✅ Attendance marked as Present!');
+            const openCount = body.querySelectorAll('.spectrumx-att-session.open').length;
+            const cEl = document.getElementById('spectrumx-att-count');
+            if (cEl) cEl.textContent = openCount > 0 ? `${openCount} open` : 'All marked ✓';
+          } else {
+            btn.textContent = '✗ Failed';
+            btn.classList.remove('loading');
+            btn.classList.add('error');
+            showToast(`❌ Failed: ${result.error}`);
+            setTimeout(() => { btn.textContent = '✓ Mark Present'; btn.classList.remove('error'); btn.disabled = false; }, 3000);
+          }
+        } catch (err) {
+          btn.textContent = '✗ Error';
+          btn.classList.remove('loading');
+          showToast(`❌ Error: ${err.message}`);
+          setTimeout(() => { btn.textContent = '✓ Mark Present'; btn.disabled = false; }, 3000);
+        }
+      });
+    });
+  }
+
+  async function markAttendancePresent(submitUrl, sessId, sessKey) {
+    try {
+      const result = await chrome.runtime.sendMessage({
+        target: 'offscreen',
+        type: 'MARK_ATTENDANCE',
+        payload: { submitUrl, sessId, sessKey }
+      });
+      return result || { success: false, error: 'No response' };
+    } catch (err) {
+      return { success: false, error: err.message };
     }
   }
 
@@ -2552,7 +2494,7 @@ Summarize this discussion as a TL;DR for a busy student. Return JSON only.`;
     injectSpotlight();
     injectForumSummary();
     injectExportButton();
-    highlightAttendanceOnPage();
+    injectAttendancePanel();
     restoreFocusIfNeeded();
 
     // Scrape after delay for Moodle JS to finish rendering
