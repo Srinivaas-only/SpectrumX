@@ -237,6 +237,35 @@ async function handleMessage(message, sender) {
       }
     }
 
+    // File Manager — scan all courses for files
+    case 'SCAN_ALL_FILES': {
+      try {
+        const scanner = new DeepScanner();
+        const results = await scanner.scanAllFiles((progress) => {
+          chrome.runtime.sendMessage({
+            type: 'DEEP_SCAN_PROGRESS',
+            payload: progress
+          }).catch(() => {});
+        });
+
+        // Cache in storage for instant load next time
+        await chrome.storage.local.set({
+          cachedFiles: results.files,
+          cachedFilesTimestamp: new Date().toISOString()
+        });
+
+        return {
+          success: true,
+          files: results.files,
+          totalFiles: results.files.length,
+          errors: results.errors
+        };
+      } catch (err) {
+        console.error('[SpectrumX] File scan error:', err);
+        return { success: false, error: err.message };
+      }
+    }
+
     // DeepScan — crawl multiple Spectrum pages for events via offscreen document
     case 'DEEP_SCAN': {
       try {

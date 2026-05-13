@@ -1079,6 +1079,7 @@
           <button class="spectrumx-fab-menu-item" data-action="reader-mode">🧘 Reader Mode</button>
           <button class="spectrumx-fab-menu-item" data-action="spotlight">🔍 Spotlight Search</button>
           <button class="spectrumx-fab-menu-item" data-action="attendance">✅ Attendance</button>
+          <button class="spectrumx-fab-menu-item" data-action="file-manager">📁 File Manager</button>
         </div>
       </div>
     `;
@@ -1136,6 +1137,9 @@
           break;
         case 'attendance':
           document.getElementById('spectrumx-attendance-panel')?.classList.toggle('active');
+          break;
+        case 'file-manager':
+          openFileManager();
           break;
       }
     });
@@ -2444,6 +2448,345 @@ Summarize this discussion as a TL;DR for a busy student. Return JSON only.`;
     const div = document.createElement('div');
     div.textContent = text || '';
     return div.innerHTML;
+  }
+
+  // ============================================================
+  // Universal File Manager — full-page overlay
+  // ============================================================
+
+  /**
+   * Open the full-page File Manager overlay.
+   */
+  async function openFileManager() {
+    let overlay = document.getElementById('spectrumx-file-manager');
+
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'spectrumx-file-manager';
+      overlay.className = 'spectrumx-fm';
+      overlay.innerHTML = buildFileManagerShell();
+      document.body.appendChild(overlay);
+      setupFileManagerHandlers(overlay);
+    }
+
+    overlay.classList.add('active');
+    document.body.style.overflow = 'hidden';
+
+    // Check for cached files
+    try {
+      const cached = await chrome.storage.local.get(['cachedFiles', 'cachedFilesTimestamp']);
+      if (cached.cachedFiles && cached.cachedFiles.length > 0) {
+        const age = Date.now() - new Date(cached.cachedFilesTimestamp).getTime();
+        const isStale = age > 30 * 60 * 1000; // 30 min
+        renderFileManager(overlay, cached.cachedFiles, isStale);
+        return;
+      }
+    } catch (e) {}
+
+    // No cache — trigger scan
+    triggerFileScan(overlay);
+  }
+
+  /**
+   * Build the File Manager shell HTML.
+   */
+  function buildFileManagerShell() {
+    return `
+      <div class="spectrumx-fm-header">
+        <div class="spectrumx-fm-header-left">
+          <span class="spectrumx-fm-logo">⚡</span>
+          <h2 class="spectrumx-fm-title">File Manager</h2>
+          <span class="spectrumx-fm-subtitle" id="fm-subtitle">All files across all courses</span>
+        </div>
+        <div class="spectrumx-fm-header-right">
+          <button class="spectrumx-fm-refresh-btn" id="fm-refresh-btn" title="Re-scan all courses">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"/>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+            Refresh
+          </button>
+          <button class="spectrumx-fm-close-btn" id="fm-close-btn" title="Close" aria-label="Close">✕</button>
+        </div>
+      </div>
+
+      <div class="spectrumx-fm-toolbar">
+        <div class="spectrumx-fm-search-wrapper">
+          <svg class="spectrumx-fm-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="M21 21l-4.35-4.35"/>
+          </svg>
+          <input type="text" class="spectrumx-fm-search" id="fm-search" placeholder="Search files across all courses..." autocomplete="off" spellcheck="false">
+        </div>
+
+        <div class="spectrumx-fm-filters" id="fm-filters">
+          <button class="spectrumx-fm-filter active" data-filter="all">All</button>
+          <button class="spectrumx-fm-filter" data-filter="pdf">📄 PDF</button>
+          <button class="spectrumx-fm-filter" data-filter="pptx">📊 Slides</button>
+          <button class="spectrumx-fm-filter" data-filter="docx">📝 Docs</button>
+          <button class="spectrumx-fm-filter" data-filter="video">🎬 Video</button>
+          <button class="spectrumx-fm-filter" data-filter="link">🔗 Links</button>
+          <button class="spectrumx-fm-filter" data-filter="other">📦 Other</button>
+        </div>
+
+        <div class="spectrumx-fm-course-filter">
+          <select class="spectrumx-fm-course-select" id="fm-course-select">
+            <option value="all">All Courses</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="spectrumx-fm-stats" id="fm-stats"></div>
+
+      <div class="spectrumx-fm-body" id="fm-body">
+        <div class="spectrumx-fm-loading" id="fm-loading">
+          <div class="spectrumx-fm-loading-icon">
+            <div class="spectrumx-fm-spinner"></div>
+          </div>
+          <div class="spectrumx-fm-loading-text" id="fm-loading-text">Scanning all courses for files...</div>
+          <div class="spectrumx-fm-loading-progress">
+            <div class="spectrumx-fm-progress-bar" id="fm-progress-bar"></div>
+          </div>
+        </div>
+        <div class="spectrumx-fm-grid" id="fm-grid" style="display:none;"></div>
+        <div class="spectrumx-fm-empty" id="fm-empty" style="display:none;">
+          <div class="spectrumx-fm-empty-icon">📂</div>
+          <div class="spectrumx-fm-empty-text">No files match your filters</div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Wire up all File Manager event handlers.
+   */
+  function setupFileManagerHandlers(overlay) {
+    overlay.querySelector('#fm-close-btn').addEventListener('click', () => {
+      overlay.classList.remove('active');
+      document.body.style.overflow = '';
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && overlay.classList.contains('active')) {
+        overlay.classList.remove('active');
+        document.body.style.overflow = '';
+      }
+    });
+
+    overlay.querySelector('#fm-refresh-btn').addEventListener('click', () => {
+      triggerFileScan(overlay);
+    });
+
+    overlay.querySelector('#fm-search').addEventListener('input', () => {
+      applyFileFilters(overlay);
+    });
+
+    overlay.querySelector('#fm-filters').addEventListener('click', (e) => {
+      const btn = e.target.closest('.spectrumx-fm-filter');
+      if (!btn) return;
+      overlay.querySelectorAll('.spectrumx-fm-filter').forEach(f => f.classList.remove('active'));
+      btn.classList.add('active');
+      applyFileFilters(overlay);
+    });
+
+    overlay.querySelector('#fm-course-select').addEventListener('change', () => {
+      applyFileFilters(overlay);
+    });
+  }
+
+  /**
+   * Trigger a full file scan across all courses.
+   */
+  async function triggerFileScan(overlay) {
+    const loading = overlay.querySelector('#fm-loading');
+    const grid = overlay.querySelector('#fm-grid');
+    const loadingText = overlay.querySelector('#fm-loading-text');
+    const progressBar = overlay.querySelector('#fm-progress-bar');
+
+    loading.style.display = 'flex';
+    grid.style.display = 'none';
+    progressBar.style.width = '0%';
+
+    const listener = (message) => {
+      if (message.type === 'DEEP_SCAN_PROGRESS') {
+        loadingText.textContent = message.payload.message;
+        if (message.payload.progress) {
+          progressBar.style.width = message.payload.progress + '%';
+        }
+      }
+    };
+    chrome.runtime.onMessage.addListener(listener);
+
+    try {
+      const result = await chrome.runtime.sendMessage({ type: 'SCAN_ALL_FILES' });
+      chrome.runtime.onMessage.removeListener(listener);
+
+      if (result.success) {
+        renderFileManager(overlay, result.files, false);
+      } else {
+        loadingText.textContent = `Scan failed: ${result.error || 'Unknown error'}`;
+      }
+    } catch (err) {
+      chrome.runtime.onMessage.removeListener(listener);
+      loadingText.textContent = `Error: ${err.message}`;
+    }
+  }
+
+  /**
+   * Render files into the grid.
+   */
+  function renderFileManager(overlay, files, isStale) {
+    const loading = overlay.querySelector('#fm-loading');
+    const grid = overlay.querySelector('#fm-grid');
+    const stats = overlay.querySelector('#fm-stats');
+    const subtitle = overlay.querySelector('#fm-subtitle');
+    const courseSelect = overlay.querySelector('#fm-course-select');
+
+    loading.style.display = 'none';
+    grid.style.display = 'grid';
+
+    overlay._allFiles = files;
+
+    const courseIds = [...new Set(files.map(f => f.courseId))].sort();
+    courseSelect.innerHTML = '<option value="all">All Courses</option>';
+    courseIds.forEach(cid => {
+      const opt = document.createElement('option');
+      opt.value = cid;
+      opt.textContent = cid;
+      courseSelect.appendChild(opt);
+    });
+
+    const pdfCount = files.filter(f => f.fileType === 'pdf').length;
+    const slideCount = files.filter(f => f.fileType === 'pptx').length;
+    const videoCount = files.filter(f => f.fileType === 'video').length;
+    const totalCourses = courseIds.length;
+
+    stats.innerHTML = `
+      <span class="spectrumx-fm-stat">${files.length} files</span>
+      <span class="spectrumx-fm-stat-dot">·</span>
+      <span class="spectrumx-fm-stat">${totalCourses} courses</span>
+      <span class="spectrumx-fm-stat-dot">·</span>
+      <span class="spectrumx-fm-stat">${pdfCount} PDFs</span>
+      <span class="spectrumx-fm-stat-dot">·</span>
+      <span class="spectrumx-fm-stat">${slideCount} slides</span>
+      <span class="spectrumx-fm-stat-dot">·</span>
+      <span class="spectrumx-fm-stat">${videoCount} videos</span>
+      ${isStale ? '<span class="spectrumx-fm-stale">⚠ Cached — click Refresh for latest</span>' : ''}
+    `;
+
+    subtitle.textContent = `${files.length} files across ${totalCourses} courses`;
+
+    applyFileFilters(overlay);
+  }
+
+  /**
+   * Apply search + type filter + course filter and re-render the grid.
+   */
+  function applyFileFilters(overlay) {
+    const files = overlay._allFiles || [];
+    const query = overlay.querySelector('#fm-search')?.value?.toLowerCase()?.trim() || '';
+    const activeFilter = overlay.querySelector('.spectrumx-fm-filter.active')?.dataset.filter || 'all';
+    const courseFilter = overlay.querySelector('#fm-course-select')?.value || 'all';
+    const grid = overlay.querySelector('#fm-grid');
+    const empty = overlay.querySelector('#fm-empty');
+
+    let filtered = files;
+
+    if (activeFilter !== 'all') {
+      if (activeFilter === 'other') {
+        filtered = filtered.filter(f => !['pdf', 'pptx', 'docx', 'video', 'link'].includes(f.fileType));
+      } else {
+        filtered = filtered.filter(f => f.fileType === activeFilter);
+      }
+    }
+
+    if (courseFilter !== 'all') {
+      filtered = filtered.filter(f => f.courseId === courseFilter);
+    }
+
+    if (query) {
+      filtered = filtered.filter(f => {
+        const searchable = `${f.name} ${f.courseId} ${f.courseName || ''} ${f.section} ${f.description}`.toLowerCase();
+        return searchable.includes(query);
+      });
+    }
+
+    if (filtered.length === 0) {
+      grid.style.display = 'none';
+      empty.style.display = 'flex';
+      return;
+    }
+
+    empty.style.display = 'none';
+    grid.style.display = 'grid';
+
+    const grouped = {};
+    filtered.forEach(f => {
+      const key = f.courseId;
+      if (!grouped[key]) grouped[key] = {};
+      const secKey = f.section || 'General';
+      if (!grouped[key][secKey]) grouped[key][secKey] = [];
+      grouped[key][secKey].push(f);
+    });
+
+    let html = '';
+    Object.keys(grouped).sort().forEach(courseId => {
+      html += `<div class="spectrumx-fm-course-group">`;
+      html += `<div class="spectrumx-fm-course-header">${escapeHtmlFm(courseId)}</div>`;
+
+      Object.keys(grouped[courseId]).forEach(section => {
+        html += `<div class="spectrumx-fm-section-label">${escapeHtmlFm(section)}</div>`;
+
+        grouped[courseId][section].forEach((file, idx) => {
+          const emoji = getFileEmoji(file.fileType);
+          const badge = getFileBadge(file.fileType);
+          html += `
+            <a class="spectrumx-fm-card" href="${escapeAttrFm(file.url)}" target="_blank" rel="noopener" style="animation-delay: ${idx * 0.02}s;">
+              <span class="spectrumx-fm-card-icon">${emoji}</span>
+              <div class="spectrumx-fm-card-info">
+                <div class="spectrumx-fm-card-name">${escapeHtmlFm(file.name)}</div>
+                <div class="spectrumx-fm-card-meta">${escapeHtmlFm(file.courseId)} · ${escapeHtmlFm(file.section)}</div>
+              </div>
+              <span class="spectrumx-fm-card-badge ${file.fileType}">${badge}</span>
+            </a>
+          `;
+        });
+      });
+
+      html += `</div>`;
+    });
+
+    grid.innerHTML = html;
+  }
+
+  function getFileEmoji(type) {
+    const map = {
+      pdf: '📄', pptx: '📊', docx: '📝', xlsx: '📈',
+      video: '🎬', audio: '🎵', image: '🖼️', zip: '📦',
+      link: '🔗', folder: '📁', code: '💻', html: '🌐',
+      text: '📃', file: '📎'
+    };
+    return map[type] || '📎';
+  }
+
+  function getFileBadge(type) {
+    const map = {
+      pdf: 'PDF', pptx: 'PPT', docx: 'DOC', xlsx: 'XLS',
+      video: 'VID', audio: 'AUD', image: 'IMG', zip: 'ZIP',
+      link: 'LINK', folder: 'DIR', code: 'CODE', html: 'HTML',
+      text: 'TXT', file: 'FILE'
+    };
+    return map[type] || 'FILE';
+  }
+
+  function escapeHtmlFm(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+  }
+
+  function escapeAttrFm(text) {
+    return (text || '').replace(/"/g, '"').replace(/'/g, '&#39;');
   }
 
   // ============================================================

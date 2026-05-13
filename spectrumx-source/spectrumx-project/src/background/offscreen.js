@@ -82,6 +82,9 @@ async function handleParseHtml({ url, extractType, courseCode }) {
       case 'forum':
         extracted = extractForumPage(doc, courseCode);
         break;
+      case 'files':
+        extracted = extractCourseFiles(doc, courseCode);
+        break;
       default:
         extracted = { courses: [], events: [] };
     }
@@ -280,6 +283,125 @@ function extractCoursePage(doc, courseCode) {
   });
 
   return { events, assignmentUrls, forumUrls, pdfUrls };
+}
+
+// ============================================================
+// EXTRACT: ALL FILES FROM A COURSE PAGE
+// ============================================================
+function extractCourseFiles(doc, courseCode) {
+  const files = [];
+  const code = courseCode || extractCourseCodeFromTitle(doc.title) || 'Unknown';
+
+  // Get all sections for grouping
+  const sections = doc.querySelectorAll(
+    'li.section.course-section[data-sectionid], li.section.main[data-sectionid]'
+  );
+
+  sections.forEach(section => {
+    const sectionName = section.getAttribute('data-sectionname') || 'General';
+
+    // Resources (files uploaded by lecturers)
+    const resources = section.querySelectorAll('li.modtype_resource, li.modtype_folder');
+    resources.forEach(activity => {
+      const card = activity.querySelector('[data-activityname]');
+      const name = card?.getAttribute('data-activityname')?.trim() || '';
+      if (!name) return;
+
+      const link = activity.querySelector('a.aalink, a.stretched-link');
+      const url = link?.href || '';
+
+      // Detect file type from icon
+      const icon = activity.querySelector('.activityicon, [data-region="activity-icon"]');
+      const iconSrc = icon?.getAttribute('src') || '';
+      const fileType = detectFileType(iconSrc, name);
+
+      // Get description if any
+      const descEl = activity.querySelector('.activity-description, .activity-altcontent');
+      const description = descEl?.textContent?.replace(/\s+/g, ' ')?.trim()?.substring(0, 200) || '';
+
+      // Is it a folder? (contains multiple files)
+      const isFolder = activity.classList.contains('modtype_folder');
+
+      files.push({
+        name: name,
+        url: url,
+        courseId: code,
+        section: sectionName,
+        fileType: fileType,
+        iconSrc: iconSrc,
+        description: description,
+        isFolder: isFolder,
+        activityType: 'resource'
+      });
+    });
+
+    // URL activities (external links — Zoom, YouTube, etc.)
+    const urls = section.querySelectorAll('li.modtype_url');
+    urls.forEach(activity => {
+      const card = activity.querySelector('[data-activityname]');
+      const name = card?.getAttribute('data-activityname')?.trim() || '';
+      if (!name) return;
+
+      const link = activity.querySelector('a.aalink, a.stretched-link');
+      const url = link?.href || '';
+
+      // Check if it's a video link
+      const isVideo = /zoom|panopto|youtube|youtu\.be|video|mp4|recording|lecture.*vid/i.test(name + ' ' + url);
+      const fileType = isVideo ? 'video' : 'link';
+
+      files.push({
+        name: name,
+        url: url,
+        courseId: code,
+        section: sectionName,
+        fileType: fileType,
+        iconSrc: '',
+        description: '',
+        isFolder: false,
+        activityType: 'url'
+      });
+    });
+  });
+
+  return { files };
+}
+
+/**
+ * Detect file type from Moodle's icon URL pattern.
+ * Fallback: check the file name for extensions.
+ */
+function detectFileType(iconSrc, fileName) {
+  // Icon-based detection (most reliable)
+  if (iconSrc) {
+    const iconLower = iconSrc.toLowerCase();
+    if (iconLower.includes('f/pdf')) return 'pdf';
+    if (iconLower.includes('f/powerpoint')) return 'pptx';
+    if (iconLower.includes('f/document')) return 'docx';
+    if (iconLower.includes('f/spreadsheet')) return 'xlsx';
+    if (iconLower.includes('f/video')) return 'video';
+    if (iconLower.includes('f/audio')) return 'audio';
+    if (iconLower.includes('f/archive')) return 'zip';
+    if (iconLower.includes('f/image')) return 'image';
+    if (iconLower.includes('f/text')) return 'text';
+    if (iconLower.includes('f/sourcecode')) return 'code';
+    if (iconLower.includes('f/markup')) return 'html';
+    if (iconLower.includes('folder')) return 'folder';
+  }
+
+  // Name-based fallback
+  const nameLower = (fileName || '').toLowerCase();
+  if (/\.pdf$/i.test(nameLower)) return 'pdf';
+  if (/\.pptx?$/i.test(nameLower)) return 'pptx';
+  if (/\.docx?$/i.test(nameLower)) return 'docx';
+  if (/\.xlsx?$/i.test(nameLower)) return 'xlsx';
+  if (/\.mp4|\.mkv|\.avi|\.mov$/i.test(nameLower)) return 'video';
+  if (/\.mp3|\.wav|\.ogg$/i.test(nameLower)) return 'audio';
+  if (/\.zip|\.rar|\.7z|\.tar$/i.test(nameLower)) return 'zip';
+  if (/\.png|\.jpg|\.jpeg|\.gif|\.svg$/i.test(nameLower)) return 'image';
+  if (/slide|presentation|lecture.*note/i.test(nameLower)) return 'pptx';
+  if (/lab.*manual|tutorial.*sheet|worksheet/i.test(nameLower)) return 'pdf';
+
+  return 'file'; // generic
 }
 
 // ============================================================

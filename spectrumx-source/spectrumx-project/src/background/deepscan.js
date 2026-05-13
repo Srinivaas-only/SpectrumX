@@ -414,6 +414,56 @@ Extract any submission deadlines, project due dates, exam dates, or assignment d
     }
   }
 
+  /**
+   * Scan ALL enrolled courses for files and aggregate them.
+   * Returns a flat array of all files across all courses.
+   */
+  async scanAllFiles(onProgress) {
+    this.scannedUrls = [];
+    this.errors = [];
+    let allFiles = [];
+
+    // Step 1: Get course list from home page
+    onProgress?.({ phase: 'home', message: 'Finding your courses...' });
+    const homeData = await this.fetchAndParse('https://spectrum.um.edu.my/', 'home');
+    if (!homeData || !homeData.courses?.length) {
+      try { await chrome.offscreen.closeDocument(); } catch (e) {}
+      return { files: [], errors: this.errors };
+    }
+
+    const courses = homeData.courses;
+
+    // Step 2: For each course, extract all files
+    for (let i = 0; i < courses.length; i++) {
+      const course = courses[i];
+      onProgress?.({
+        phase: 'scanning',
+        message: `Scanning ${course.id} (${i + 1}/${courses.length})...`,
+        progress: Math.round(((i + 1) / courses.length) * 100)
+      });
+
+      const data = await this.fetchAndParse(course.url, 'files', course.id);
+      if (data && data.files) {
+        // Tag each file with course name for display
+        data.files.forEach(f => {
+          f.courseName = course.name || course.id;
+        });
+        allFiles.push(...data.files);
+      }
+
+      await this.delay(300); // Rate limit
+    }
+
+    try { await chrome.offscreen.closeDocument(); } catch (e) {}
+
+    return {
+      files: allFiles,
+      courses: courses,
+      errors: this.errors,
+      scannedUrls: this.scannedUrls
+    };
+  }
+
   extractCourseFromUrl(url) {
     const idMatch = url.match(/id=(\d+)/);
     return idMatch ? `Course-${idMatch[1]}` : null;
