@@ -248,6 +248,9 @@ body {
   padding: 12px 14px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
+  overflow: hidden;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .message.assistant .message-bubble {
@@ -265,6 +268,8 @@ body {
   font-size: 13px;
   line-height: 1.7;
   color: var(--text-primary);
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .message-text strong {
@@ -339,6 +344,9 @@ body {
   color: var(--accent);
   text-decoration: none;
   margin-top: 4px;
+  word-break: break-all;
+  overflow-wrap: break-word;
+  max-width: 100%;
 }
 
 .chat-event-source:hover {
