@@ -120,7 +120,6 @@
 .spectrumx-fab-menu-item:hover {
   background: rgba(108, 92, 231, 0.15);
   border-color: rgba(108, 92, 231, 0.4);
-  transform: translateX(4px);
 }
 
 /* ============================================================
