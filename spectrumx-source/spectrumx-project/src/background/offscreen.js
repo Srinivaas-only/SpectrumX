@@ -189,10 +189,22 @@ function extractHome(doc) {
 /**
  * Helper used by extractHome strategies 1 and 2.
  */
+// System / admin course IDs to skip (not real student courses)
+const SYSTEM_COURSE_IDS = new Set([
+  '1',       // Site home / Site news
+  '2',       // Dashboard / Sandbox
+  '26925',   // LEAP programme (non-academic)
+  '32611',   // UM General
+  '32612'    // UM Student Services
+]);
+
 function addCourseFromCard(card, courses) {
   const moodleId = card.getAttribute('data-course-id') ||
                    card.querySelector('[data-course-id]')?.getAttribute('data-course-id');
   if (!moodleId) return;
+
+  // Skip system/admin courses
+  if (SYSTEM_COURSE_IDS.has(moodleId)) return;
 
   // Skip duplicates
   if (courses.some(c => c.moodleId === moodleId)) return;

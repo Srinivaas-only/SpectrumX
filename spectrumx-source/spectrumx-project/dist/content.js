@@ -65,6 +65,38 @@
       return this;
     }
 
+    /**
+     * Load courses from chrome.storage (populated by DeepScan).
+     * Falls back to DOM scan if storage is empty.
+     */
+    async detectFromStorage() {
+      this.courses.clear();
+      try {
+        const data = await chrome.storage.local.get(['courses']);
+        const stored = data.courses || [];
+        if (stored.length > 0) {
+          stored.forEach(c => {
+            const key = c.moodleId || c.id || c.code;
+            if (key && !this.courses.has(key)) {
+              this.courses.set(key, {
+                id: key,
+                name: c.name || c.id,
+                code: c.code || c.id,
+                url: c.url || ''
+              });
+            }
+          });
+          console.log(`[SpectrumX] CourseRegistry: loaded ${this.courses.size} courses from storage`);
+          this.initialized = true;
+          return this;
+        }
+      } catch (e) {
+        console.warn('[SpectrumX] CourseRegistry storage read failed:', e);
+      }
+      // Fallback to DOM scan
+      return this.detect();
+    }
+
     _scanNavigation() {
       // Moodle sidebar with enrolled courses
       const selectors = [
@@ -996,8 +1028,8 @@
   // Deep Scan orchestrator — merges surface + deep results
   // ============================================================
   async function deepScanAndSend() {
-    // Re-detect courses first
-    registry.detect();
+    // Re-detect courses — prefer storage (DeepScan data) over DOM scan
+    await registry.detectFromStorage();
 
     const scanner = new DeepScanner(registry);
     const deepData = await scanner.deepScan();
@@ -1076,6 +1108,10 @@
           <button class="spectrumx-fab-menu-item" data-action="chatbot">🤖 Ask SpectrumX</button>
           <button class="spectrumx-fab-menu-item" data-action="deepscan">🔍 Deep Scan All Courses</button>
           <button class="spectrumx-fab-menu-item" data-action="refresh">🔄 Refresh Data</button>
+          <button class="spectrumx-fab-menu-item" data-action="reader-mode">🧘 Reader Mode</button>
+          <button class="spectrumx-fab-menu-item" data-action="spotlight">🔍 Spotlight Search</button>
+          <button class="spectrumx-fab-menu-item" data-action="attendance">✅ Attendance</button>
+          <button class="spectrumx-fab-menu-item" data-action="file-manager">📁 File Manager</button>
         </div>
       </div>
     `;
@@ -1124,6 +1160,19 @@
           await scrapeAndSend();
           showToast('Data refreshed! ✅');
           break;
+        case 'reader-mode':
+          toggleReaderMode();
+          break;
+        case 'spotlight':
+          document.getElementById('spectrumx-spotlight')?.classList.add('active');
+          setTimeout(() => document.getElementById('spectrumx-spotlight-input')?.focus(), 50);
+          break;
+        case 'attendance':
+          document.getElementById('spectrumx-attendance-panel')?.classList.toggle('active');
+          break;
+        case 'file-manager':
+          openFileManager();
+          break;
       }
     });
 
@@ -1157,11 +1206,1635 @@
   }
 
   // ============================================================
+  // Reader Mode — distraction-free reading
+  // ============================================================
+
+  /**
+   * Toggle Reader Mode — strips away Moodle's UI chrome
+   * for a distraction-free reading experience.
+   */
+  function toggleReaderMode() {
+    const html = document.documentElement;
+    const isEnabled = html.classList.contains('spectrumx-reader-mode');
+
+    if (isEnabled) {
+      html.classList.remove('spectrumx-reader-mode');
+      showToast('Reader Mode off');
+    } else {
+      html.classList.add('spectrumx-reader-mode');
+      showToast('Reader Mode on');
+    }
+
+    // Persist preference
+    try {
+      chrome.storage.local.set({ readerModeEnabled: !isEnabled });
+    } catch (e) { /* ignore */ }
+  }
+
+  /**
+   * Restore Reader Mode if it was on last time.
+   * Called on page load.
+   */
+  async function restoreReaderModeIfNeeded() {
+    try {
+      const data = await chrome.storage.local.get(['readerModeEnabled']);
+      if (data.readerModeEnabled) {
+        document.documentElement.classList.add('spectrumx-reader-mode');
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // ============================================================
+  // Focus Mode — hide non-focused sections on course pages
+  // ============================================================
+
+  /**
+   * Inject a "Focus this section" button into every Moodle course section header.
+   * Only runs on course pages (URL contains /course/view.php).
+   */
+  function injectFocusButtons() {
+    // Only run on course pages
+    if (!window.location.pathname.includes('/course/view.php')) return;
+
+    // Find all course sections
+    const sections = document.querySelectorAll(
+      'li.section.course-section[data-sectionid], li.section.main[data-sectionid]'
+    );
+
+    if (sections.length < 2) return; // No point if only one section
+
+    sections.forEach(section => {
+      // Skip section 0 (General) and Attendance section — not "weeks"
+      const sectionName = section.getAttribute('data-sectionname') || '';
+      const sectionId = section.getAttribute('data-sectionid');
+      if (sectionId === '0' || /^general$/i.test(sectionName)) return;
+
+      // Don't double-inject
+      if (section.querySelector('.spectrumx-focus-btn')) return;
+
+      // Find the section header
+      const header = section.querySelector('.course-section-header, .section-header');
+      if (!header) return;
+
+      // Create focus button
+      const btn = document.createElement('button');
+      btn.className = 'spectrumx-focus-btn';
+      btn.title = 'Focus on this section only';
+      btn.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+        Focus
+      `;
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        focusSection(sectionId);
+      });
+
+      header.appendChild(btn);
+    });
+
+    // Inject the "Show All" floating bar (hidden until focused)
+    injectFocusBar();
+  }
+
+  /**
+   * Inject the floating "Show All Sections" bar at the top of the page.
+   * Only visible when a section is focused.
+   */
+  function injectFocusBar() {
+    if (document.getElementById('spectrumx-focus-bar')) return;
+
+    const bar = document.createElement('div');
+    bar.id = 'spectrumx-focus-bar';
+    bar.innerHTML = `
+      <div class="spectrumx-focus-bar-inner">
+        <span class="spectrumx-focus-bar-icon">🎯</span>
+        <span class="spectrumx-focus-bar-text">Focused on: <strong id="spectrumx-focus-section-name"></strong></span>
+        <button id="spectrumx-show-all-btn">Show All Sections</button>
+      </div>
+    `;
+    document.body.appendChild(bar);
+
+    document.getElementById('spectrumx-show-all-btn').addEventListener('click', () => {
+      unfocusAll();
+    });
+  }
+
+  /**
+   * Focus on a single section — hide all others.
+   */
+  function focusSection(sectionId) {
+    const sections = document.querySelectorAll(
+      'li.section.course-section[data-sectionid], li.section.main[data-sectionid]'
+    );
+
+    let focusedName = '';
+    sections.forEach(section => {
+      const id = section.getAttribute('data-sectionid');
+      const name = section.getAttribute('data-sectionname') || '';
+
+      // Always keep section 0 (General announcements) visible
+      if (id === '0') return;
+
+      if (id === sectionId) {
+        section.classList.remove('spectrumx-hidden-section');
+        focusedName = name;
+      } else {
+        section.classList.add('spectrumx-hidden-section');
+      }
+    });
+
+    // Show the focus bar
+    const bar = document.getElementById('spectrumx-focus-bar');
+    if (bar) {
+      bar.classList.add('active');
+      document.getElementById('spectrumx-focus-section-name').textContent = focusedName;
+    }
+
+    // Persist
+    try {
+      chrome.storage.local.set({
+        [`focus_${getCourseId()}`]: sectionId
+      });
+    } catch (e) {}
+
+    showToast(`🎯 Focused on: ${focusedName}`);
+
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  /**
+   * Restore all sections (unfocus).
+   */
+  function unfocusAll() {
+    document.querySelectorAll('.spectrumx-hidden-section').forEach(s => {
+      s.classList.remove('spectrumx-hidden-section');
+    });
+
+    const bar = document.getElementById('spectrumx-focus-bar');
+    if (bar) bar.classList.remove('active');
+
+    try {
+      chrome.storage.local.remove([`focus_${getCourseId()}`]);
+    } catch (e) {}
+
+    showToast('Showing all sections');
+  }
+
+  /**
+   * Get current course ID from URL.
+   */
+  function getCourseId() {
+    const match = window.location.search.match(/[?&]id=(\d+)/);
+    return match ? match[1] : 'unknown';
+  }
+
+  /**
+   * Restore focus state from storage if previously focused.
+   */
+  async function restoreFocusIfNeeded() {
+    if (!window.location.pathname.includes('/course/view.php')) return;
+    try {
+      const courseId = getCourseId();
+      const key = `focus_${courseId}`;
+      const data = await chrome.storage.local.get([key]);
+      if (data[key]) {
+        // Wait a tick for DOM to be ready
+        setTimeout(() => focusSection(data[key]), 100);
+      }
+    } catch (e) {}
+  }
+
+  // ============================================================
+  // Spotlight Search — Cmd/Ctrl+K command palette
+  // ============================================================
+
+  /**
+   * Inject the Spotlight overlay into the page.
+   * Listens for Cmd/Ctrl+K to show it.
+   */
+  function injectSpotlight() {
+    // Don't double-inject
+    if (document.getElementById('spectrumx-spotlight')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'spectrumx-spotlight';
+    overlay.innerHTML = `
+      <div class="spectrumx-spotlight-backdrop" data-action="close"></div>
+      <div class="spectrumx-spotlight-modal" role="dialog" aria-label="SpectrumX Search">
+        <div class="spectrumx-spotlight-header">
+          <svg class="spectrumx-spotlight-search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="M21 21l-4.35-4.35"/>
+          </svg>
+          <input
+            type="text"
+            id="spectrumx-spotlight-input"
+            class="spectrumx-spotlight-input"
+            placeholder="Search deadlines, courses, anything..."
+            autocomplete="off"
+            spellcheck="false"
+          >
+          <kbd class="spectrumx-spotlight-kbd">ESC</kbd>
+        </div>
+        <div class="spectrumx-spotlight-results" id="spectrumx-spotlight-results">
+        </div>
+        <div class="spectrumx-spotlight-footer">
+          <span class="spectrumx-spotlight-hint">
+            <kbd>↑</kbd><kbd>↓</kbd> Navigate
+          </span>
+          <span class="spectrumx-spotlight-hint">
+            <kbd>↵</kbd> Open
+          </span>
+          <span class="spectrumx-spotlight-hint">
+            <kbd>ESC</kbd> Close
+          </span>
+          <span class="spectrumx-spotlight-brand">⚡ SpectrumX</span>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    // Setup event listeners
+    setupSpotlightHandlers();
+  }
+
+  /**
+   * Setup all spotlight event handlers (keyboard, click, search).
+   */
+  function setupSpotlightHandlers() {
+    const overlay = document.getElementById('spectrumx-spotlight');
+    const input = document.getElementById('spectrumx-spotlight-input');
+    const results = document.getElementById('spectrumx-spotlight-results');
+
+    let selectedIndex = 0;
+    let currentResults = [];
+
+    // Open with Cmd/Ctrl + K
+    document.addEventListener('keydown', (e) => {
+      const isCmdK = (e.metaKey || e.ctrlKey) && e.key === 'k';
+      if (isCmdK) {
+        e.preventDefault();
+        openSpotlight();
+      }
+
+      // Close with ESC if open
+      if (e.key === 'Escape' && overlay.classList.contains('active')) {
+        closeSpotlight();
+      }
+    });
+
+    // Backdrop click closes
+    overlay.querySelector('[data-action="close"]').addEventListener('click', closeSpotlight);
+
+    // Input typing → search
+    input.addEventListener('input', () => {
+      selectedIndex = 0;
+      renderResults();
+    });
+
+    // Keyboard navigation in results
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        selectedIndex = Math.min(selectedIndex + 1, currentResults.length - 1);
+        updateSelection();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        selectedIndex = Math.max(selectedIndex - 1, 0);
+        updateSelection();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const selected = currentResults[selectedIndex];
+        if (selected) openResult(selected);
+      }
+    });
+
+    async function openSpotlight() {
+      overlay.classList.add('active');
+      input.value = '';
+      selectedIndex = 0;
+      await renderResults();
+      setTimeout(() => input.focus(), 50);
+    }
+
+    function closeSpotlight() {
+      overlay.classList.remove('active');
+      input.blur();
+    }
+
+    /**
+     * Build the full searchable dataset.
+     */
+    async function getSearchableItems() {
+      let events = [];
+      let courses = [];
+
+      try {
+        const data = await chrome.storage.local.get(['events', 'courses']);
+        events = data.events || [];
+        courses = data.courses || [];
+      } catch (e) {}
+
+      // Quick links — Spectrum's standard pages
+      const quickLinks = [
+        { type: 'link', title: 'Dashboard', subtitle: 'Your Spectrum dashboard', url: 'https://spectrum.um.edu.my/my/', icon: '🏠' },
+        { type: 'link', title: 'My Courses', subtitle: 'All enrolled courses', url: 'https://spectrum.um.edu.my/my/courses.php', icon: '📚' },
+        { type: 'link', title: 'Calendar', subtitle: 'Spectrum calendar view', url: 'https://spectrum.um.edu.my/calendar/view.php?view=month', icon: '📅' },
+        { type: 'link', title: 'Grades', subtitle: 'Your grade overview', url: 'https://spectrum.um.edu.my/grade/report/overview/index.php', icon: '🎓' },
+        { type: 'link', title: 'Messages', subtitle: 'Chat with classmates and lecturers', url: 'https://spectrum.um.edu.my/message/index.php', icon: '💬' },
+        { type: 'link', title: 'Profile', subtitle: 'Your user profile', url: 'https://spectrum.um.edu.my/user/profile.php', icon: '👤' },
+        { type: 'link', title: 'Private Files', subtitle: 'Your uploaded files', url: 'https://spectrum.um.edu.my/user/files.php', icon: '📁' },
+        { type: 'link', title: 'Preferences', subtitle: 'Account settings', url: 'https://spectrum.um.edu.my/user/preferences.php', icon: '⚙️' }
+      ];
+
+      // Map events to search items
+      const eventItems = events.map(evt => {
+        const eventDate = new Date(evt.date);
+        const dateStr = eventDate.toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' });
+        return {
+          type: 'event',
+          title: evt.title,
+          subtitle: `${evt.courseId || ''} · ${dateStr}`,
+          url: evt.sourceUrl,
+          icon: getEventEmoji(evt.type),
+          date: evt.date,
+          eventType: evt.type
+        };
+      });
+
+      // Map courses to search items
+      const courseItems = courses.map(c => ({
+        type: 'course',
+        title: c.name ? `${c.id} ${c.name}` : c.id,
+        subtitle: c.category || 'Course',
+        url: c.url || `https://spectrum.um.edu.my/course/view.php?id=${c.moodleId}`,
+        icon: '📖'
+      }));
+
+      return [...eventItems, ...courseItems, ...quickLinks];
+    }
+
+    function getEventEmoji(type) {
+      const map = {
+        exam: '📝', quiz: '❓', assignment: '📄', lab: '🔬',
+        viva: '🎤', presentation: '📊', project: '🏗️',
+        tutorial: '📚', other: '📌'
+      };
+      return map[type] || '📌';
+    }
+
+    /**
+     * Fuzzy match score. Higher = better match.
+     */
+    function fuzzyScore(query, target) {
+      if (!query) return 1;
+      query = query.toLowerCase();
+      target = target.toLowerCase();
+
+      // Exact substring is the best
+      if (target.includes(query)) {
+        return 1000 - target.indexOf(query);
+      }
+
+      // Fuzzy: all chars must appear in order
+      let qi = 0;
+      let score = 0;
+      let lastIdx = -1;
+      for (let ti = 0; ti < target.length && qi < query.length; ti++) {
+        if (target[ti] === query[qi]) {
+          score += 10;
+          if (lastIdx >= 0 && ti - lastIdx === 1) score += 5;
+          lastIdx = ti;
+          qi++;
+        }
+      }
+      if (qi < query.length) return 0;
+      return score;
+    }
+
+    /**
+     * Render results based on current query.
+     */
+    async function renderResults() {
+      const query = input.value.trim();
+      const items = await getSearchableItems();
+
+      // Score and filter
+      const scored = items.map(item => {
+        const titleScore = fuzzyScore(query, item.title);
+        const subtitleScore = fuzzyScore(query, item.subtitle || '') * 0.5;
+        const score = Math.max(titleScore, subtitleScore);
+        return { item, score };
+      }).filter(x => x.score > 0);
+
+      // Sort by score
+      scored.sort((a, b) => b.score - a.score);
+
+      // Limit to top 20
+      currentResults = scored.slice(0, 20).map(x => x.item);
+
+      if (currentResults.length === 0) {
+        results.innerHTML = `
+          <div class="spectrumx-spotlight-empty">
+            <div class="spectrumx-spotlight-empty-icon">🔍</div>
+            <div class="spectrumx-spotlight-empty-text">No results for "${escapeHtml(query)}"</div>
+            <div class="spectrumx-spotlight-empty-hint">Try DeepScan to find more events</div>
+          </div>
+        `;
+        return;
+      }
+
+      // Group by type
+      const groups = { event: [], course: [], link: [] };
+      currentResults.forEach(item => {
+        if (groups[item.type]) groups[item.type].push(item);
+      });
+
+      let html = '';
+      const groupLabels = {
+        event: 'Deadlines',
+        course: 'Courses',
+        link: 'Quick Links'
+      };
+
+      let runningIndex = 0;
+      ['event', 'course', 'link'].forEach(type => {
+        const groupItems = groups[type];
+        if (groupItems.length === 0) return;
+
+        html += `<div class="spectrumx-spotlight-group-label">${groupLabels[type]}</div>`;
+        groupItems.forEach(item => {
+          const isSelected = runningIndex === selectedIndex;
+          html += `
+            <div class="spectrumx-spotlight-result ${isSelected ? 'selected' : ''}" data-idx="${runningIndex}">
+              <span class="spectrumx-spotlight-result-icon">${item.icon}</span>
+              <div class="spectrumx-spotlight-result-content">
+                <div class="spectrumx-spotlight-result-title">${escapeHtml(item.title)}</div>
+                <div class="spectrumx-spotlight-result-subtitle">${escapeHtml(item.subtitle || '')}</div>
+              </div>
+              <span class="spectrumx-spotlight-result-type">${type}</span>
+            </div>
+          `;
+          runningIndex++;
+        });
+      });
+
+      results.innerHTML = html;
+
+      // Click handlers
+      results.querySelectorAll('.spectrumx-spotlight-result').forEach(el => {
+        el.addEventListener('click', () => {
+          const idx = parseInt(el.dataset.idx);
+          if (currentResults[idx]) openResult(currentResults[idx]);
+        });
+        el.addEventListener('mouseenter', () => {
+          selectedIndex = parseInt(el.dataset.idx);
+          updateSelection();
+        });
+      });
+    }
+
+    function updateSelection() {
+      results.querySelectorAll('.spectrumx-spotlight-result').forEach((el, idx) => {
+        el.classList.toggle('selected', idx === selectedIndex);
+      });
+      const selected = results.querySelector('.spectrumx-spotlight-result.selected');
+      if (selected) selected.scrollIntoView({ block: 'nearest' });
+    }
+
+    function openResult(item) {
+      if (item.url) {
+        window.location.href = item.url;
+      }
+      closeSpotlight();
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  }
+
+  // ============================================================
+  // Attendance Panel — detect open sessions, one-click mark
+  // ============================================================
+
+  /**
+   * Detect attendance activities on course pages and inject
+   * a floating attendance panel showing open sessions.
+   */
+  function injectAttendancePanel() {
+    if (!window.location.pathname.includes('/course/view.php')) return;
+    if (document.getElementById('spectrumx-attendance-panel')) return;
+
+    const attendanceActivities = document.querySelectorAll('li.modtype_attendance');
+    if (attendanceActivities.length === 0) return;
+
+    const attendanceUrls = [];
+    attendanceActivities.forEach(activity => {
+      const link = activity.querySelector('a.aalink, a.stretched-link');
+      const nameEl = activity.querySelector('[data-activityname]');
+      const name = nameEl?.getAttribute('data-activityname')?.trim() || 'Attendance';
+      const url = link?.href || '';
+      if (url && url.includes('mod/attendance/view.php')) {
+        attendanceUrls.push({ name, url });
+      }
+    });
+
+    if (attendanceUrls.length === 0) return;
+    createAttendancePanel(attendanceUrls);
+  }
+
+  function createAttendancePanel(attendanceUrls) {
+    const panel = document.createElement('div');
+    panel.id = 'spectrumx-attendance-panel';
+    panel.className = 'spectrumx-attendance-panel';
+    panel.innerHTML = `
+      <div class="spectrumx-att-header">
+        <span class="spectrumx-att-icon">✅</span>
+        <span class="spectrumx-att-title">Attendance</span>
+        <span class="spectrumx-att-count" id="spectrumx-att-count">Checking...</span>
+        <button class="spectrumx-att-close" id="spectrumx-att-close" aria-label="Close">✕</button>
+      </div>
+      <div class="spectrumx-att-body" id="spectrumx-att-body">
+        <div class="spectrumx-att-loading">
+          <div class="spectrumx-att-pulse"></div>
+          <div class="spectrumx-att-pulse"></div>
+          <div class="spectrumx-att-pulse"></div>
+          <span class="spectrumx-att-loading-text">Scanning for open sessions...</span>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(panel);
+
+    document.getElementById('spectrumx-att-close').addEventListener('click', () => {
+      panel.classList.remove('active');
+    });
+
+    scanAttendanceSessions(attendanceUrls);
+  }
+
+  async function scanAttendanceSessions(attendanceUrls) {
+    const body = document.getElementById('spectrumx-att-body');
+    const countEl = document.getElementById('spectrumx-att-count');
+    const allSessions = [];
+
+    for (const att of attendanceUrls) {
+      try {
+        const response = await chrome.runtime.sendMessage({
+          target: 'offscreen',
+          type: 'PARSE_HTML',
+          payload: { url: att.url, extractType: 'attendance', courseCode: att.name }
+        });
+        if (response?.success && response.data?.sessions) {
+          response.data.sessions.forEach(sess => { sess.attendanceName = att.name; });
+          allSessions.push(...response.data.sessions);
+        }
+      } catch (err) {
+        console.error('[SpectrumX] Attendance scan error:', err);
+      }
+    }
+
+    renderAttendanceSessions(allSessions, body, countEl);
+  }
+
+  function renderAttendanceSessions(sessions, body, countEl) {
+    const open = sessions.filter(s => s.canMark && !s.alreadyMarked);
+    const marked = sessions.filter(s => s.alreadyMarked);
+
+    if (open.length === 0 && marked.length === 0) {
+      countEl.textContent = 'No sessions';
+      body.innerHTML = `
+        <div class="spectrumx-att-empty">
+          <div class="spectrumx-att-empty-icon">📋</div>
+          <div class="spectrumx-att-empty-text">No attendance sessions found</div>
+          <div class="spectrumx-att-empty-hint">Check back when a session is open</div>
+        </div>`;
+      return;
+    }
+
+    countEl.textContent = open.length > 0 ? `${open.length} open` : 'All marked ✓';
+    let html = '';
+
+    if (open.length > 0) {
+      html += `<div class="spectrumx-att-section-label">⏰ Open Sessions — Mark Now</div>`;
+      open.forEach(sess => {
+        html += `
+          <div class="spectrumx-att-session open" data-sessid="${escapeHtmlAtt(sess.sessId)}" data-sesskey="${escapeHtmlAtt(sess.sessKey)}" data-submit-url="${escapeHtmlAtt(sess.submitUrl)}" data-has-password="${sess.hasPassword}">
+            <div class="spectrumx-att-session-info">
+              <div class="spectrumx-att-session-name">${escapeHtmlAtt(sess.sessionName || sess.attendanceName)}</div>
+              <div class="spectrumx-att-session-time">${escapeHtmlAtt(sess.sessionTime || '')}</div>
+            </div>
+            ${sess.hasPassword ? `
+              <button class="spectrumx-att-mark-btn password" disabled title="Password required">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+                Password Required
+              </button>
+            ` : `
+              <button class="spectrumx-att-mark-btn" data-action="mark-present" title="Mark as Present">✓ Mark Present</button>
+            `}
+          </div>`;
+      });
+    }
+
+    if (marked.length > 0) {
+      html += `<div class="spectrumx-att-section-label">✅ Already Marked</div>`;
+      marked.forEach(sess => {
+        html += `
+          <div class="spectrumx-att-session marked">
+            <div class="spectrumx-att-session-info">
+              <div class="spectrumx-att-session-name">${escapeHtmlAtt(sess.sessionName || sess.attendanceName)}</div>
+              <div class="spectrumx-att-session-time">${escapeHtmlAtt(sess.sessionTime || '')}</div>
+            </div>
+            <span class="spectrumx-att-status">${escapeHtmlAtt(sess.status || 'Present')}</span>
+          </div>`;
+      });
+    }
+
+    body.innerHTML = html;
+
+    // Bind "Mark Present" buttons
+    body.querySelectorAll('[data-action="mark-present"]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const sessionEl = e.target.closest('.spectrumx-att-session');
+        const submitUrl = sessionEl.dataset.submitUrl;
+        const sessId = sessionEl.dataset.sessid;
+        const sessKey = sessionEl.dataset.sesskey;
+
+        btn.disabled = true;
+        btn.textContent = 'Marking...';
+        btn.classList.add('loading');
+
+        try {
+          const result = await markAttendancePresent(submitUrl, sessId, sessKey);
+          if (result.success) {
+            btn.textContent = '✓ Marked!';
+            btn.classList.remove('loading');
+            btn.classList.add('success');
+            sessionEl.classList.remove('open');
+            sessionEl.classList.add('marked');
+            showToast('✅ Attendance marked as Present!');
+            const openCount = body.querySelectorAll('.spectrumx-att-session.open').length;
+            const cEl = document.getElementById('spectrumx-att-count');
+            if (cEl) cEl.textContent = openCount > 0 ? `${openCount} open` : 'All marked ✓';
+          } else {
+            btn.textContent = '✗ Failed';
+            btn.classList.remove('loading');
+            btn.classList.add('error');
+            showToast(`❌ Failed: ${result.error}`);
+            setTimeout(() => { btn.textContent = '✓ Mark Present'; btn.classList.remove('error'); btn.disabled = false; }, 3000);
+          }
+        } catch (err) {
+          btn.textContent = '✗ Error';
+          btn.classList.remove('loading');
+          showToast(`❌ Error: ${err.message}`);
+          setTimeout(() => { btn.textContent = '✓ Mark Present'; btn.disabled = false; }, 3000);
+        }
+      });
+    });
+  }
+
+  async function markAttendancePresent(submitUrl, sessId, sessKey) {
+    try {
+      const result = await chrome.runtime.sendMessage({
+        target: 'offscreen',
+        type: 'MARK_ATTENDANCE',
+        payload: { submitUrl, sessId, sessKey }
+      });
+      return result || { success: false, error: 'No response' };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  function escapeHtmlAtt(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+  }
+
+  // ============================================================
+  // Export to Markdown — course page export
+  // ============================================================
+
+  /**
+   * Inject the "Export to Markdown" button on course pages.
+   */
+  function injectExportButton() {
+    if (!window.location.pathname.includes('/course/view.php')) return;
+    if (document.getElementById('spectrumx-export-btn')) return;
+
+    const header = document.querySelector('#page-header, .page-header-headings, h1');
+    if (!header) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'spectrumx-export-btn';
+    btn.className = 'spectrumx-export-btn';
+    btn.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      <span>Export to Markdown</span>
+    `;
+    btn.addEventListener('click', () => runExport());
+
+    header.insertAdjacentElement('afterend', btn);
+  }
+
+  /**
+   * Extract everything from the current course page and convert to markdown.
+   */
+  function buildCourseMarkdown() {
+    const titleEl = document.querySelector('#page-header h1, .page-header-headings h1, h1');
+    const fullTitle = titleEl?.textContent?.trim() || 'Course';
+    const codeMatch = fullTitle.match(/([A-Z]{2,4}\d{3,4}(?:\/[A-Z]{2,4}\d{3,4})?)/);
+    const courseCode = codeMatch ? codeMatch[1] : '';
+    const courseName = codeMatch ? fullTitle.replace(codeMatch[0], '').trim() : fullTitle;
+
+    const summaryEl = document.querySelector('.course-summary, .summarytext, .course-content-header-summary');
+    const summary = summaryEl?.textContent?.trim() || '';
+
+    const courseUrl = window.location.href;
+
+    const exportDate = new Date().toLocaleDateString('en-MY', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+    });
+
+    let md = `# ${fullTitle}\n\n`;
+    if (courseCode) md += `**Course Code:** ${courseCode}\n\n`;
+    if (courseName && courseName !== fullTitle) md += `**Course Name:** ${courseName}\n\n`;
+    md += `**Source:** [Spectrum](${courseUrl})\n\n`;
+    md += `**Exported:** ${exportDate}\n\n`;
+    if (summary) {
+      md += `---\n\n`;
+      md += `## Overview\n\n${summary}\n\n`;
+    }
+    md += `---\n\n`;
+
+    const sections = document.querySelectorAll(
+      'li.section.course-section[data-sectionid], li.section.main[data-sectionid]'
+    );
+
+    if (sections.length === 0) {
+      md += `*No sections found.*\n`;
+      return { markdown: md, courseCode, courseName: fullTitle };
+    }
+
+    md += `## Course Content\n\n`;
+
+    sections.forEach(section => {
+      const sectionName = section.getAttribute('data-sectionname') || 'Section';
+      const sectionId = section.getAttribute('data-sectionid');
+
+      if (sectionId === '0' && !section.querySelector('.activity')) return;
+
+      md += `### ${sectionName}\n\n`;
+
+      const sectionSummary = section.querySelector('.section_availability, .summary');
+      const summaryText = sectionSummary?.textContent?.trim();
+      if (summaryText && summaryText.length > 10) {
+        md += `> ${summaryText.replace(/\n+/g, '\n> ')}\n\n`;
+      }
+
+      const activities = section.querySelectorAll('.activity, .activity-wrapper');
+      if (activities.length === 0) {
+        md += `*(no activities)*\n\n`;
+        return;
+      }
+
+      activities.forEach(activity => {
+        const card = activity.querySelector('[data-activityname]');
+        const activityName = card?.getAttribute('data-activityname')?.trim() || '';
+        if (!activityName) return;
+
+        const linkEl = activity.querySelector('.instancename')?.closest('a') ||
+                       activity.querySelector('a.aalink');
+        const activityUrl = linkEl?.href || '';
+
+        let typeIcon = '📌';
+        let typeLabel = '';
+        if (activity.classList.contains('modtype_assign')) { typeIcon = '📄'; typeLabel = 'Assignment'; }
+        else if (activity.classList.contains('modtype_quiz')) { typeIcon = '❓'; typeLabel = 'Quiz'; }
+        else if (activity.classList.contains('modtype_forum')) { typeIcon = '💬'; typeLabel = 'Forum'; }
+        else if (activity.classList.contains('modtype_resource')) { typeIcon = '📎'; typeLabel = 'Resource'; }
+        else if (activity.classList.contains('modtype_url')) { typeIcon = '🔗'; typeLabel = 'Link'; }
+        else if (activity.classList.contains('modtype_folder')) { typeIcon = '📁'; typeLabel = 'Folder'; }
+        else if (activity.classList.contains('modtype_workshop')) { typeIcon = '🏗️'; typeLabel = 'Workshop'; }
+        else if (activity.classList.contains('modtype_lesson')) { typeIcon = '📚'; typeLabel = 'Lesson'; }
+        else if (activity.classList.contains('modtype_label')) { typeIcon = '📝'; typeLabel = 'Label'; }
+        else if (activity.classList.contains('modtype_attendance')) { typeIcon = '✅'; typeLabel = 'Attendance'; }
+        else if (activity.classList.contains('modtype_choice')) { typeIcon = '☑️'; typeLabel = 'Choice'; }
+
+        if (activity.classList.contains('modtype_label')) {
+          const labelText = activity.querySelector('.activity-altcontent, .contentafterlink')?.textContent?.trim();
+          if (labelText && labelText.length > 20) {
+            md += `${labelText.substring(0, 500)}\n\n`;
+          }
+          return;
+        }
+
+        if (activityUrl) {
+          md += `- ${typeIcon} **[${activityName}](${activityUrl})**`;
+        } else {
+          md += `- ${typeIcon} **${activityName}**`;
+        }
+        if (typeLabel) md += ` _(${typeLabel})_`;
+        md += `\n`;
+
+        const descEl = activity.querySelector('.activity-description, .activity-altcontent .no-overflow');
+        const description = descEl?.textContent?.replace(/\s+/g, ' ')?.trim();
+        if (description && description.length > 5 && description.length < 800) {
+          md += `  - ${description}\n`;
+        }
+      });
+
+      md += `\n`;
+    });
+
+    md += `---\n\n## Tracked Deadlines\n\n`;
+    md += `_To see live deadlines for this course, open the SpectrumX extension._\n\n`;
+    md += `---\n\n*Exported by SpectrumX — ${exportDate}*\n`;
+
+    return { markdown: md, courseCode, courseName: fullTitle };
+  }
+
+  /**
+   * Main export flow.
+   */
+  async function runExport() {
+    const btn = document.getElementById('spectrumx-export-btn');
+    if (btn) btn.classList.add('loading');
+
+    try {
+      const { markdown, courseCode, courseName } = buildCourseMarkdown();
+
+      let copySuccess = false;
+      try {
+        await navigator.clipboard.writeText(markdown);
+        copySuccess = true;
+      } catch (e) {
+        const textarea = document.createElement('textarea');
+        textarea.value = markdown;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+          document.execCommand('copy');
+          copySuccess = true;
+        } catch (e2) {}
+        document.body.removeChild(textarea);
+      }
+
+      showExportModal({ markdown, courseCode, courseName, copySuccess });
+    } catch (err) {
+      showToast(`Export failed: ${err.message}`);
+    } finally {
+      if (btn) btn.classList.remove('loading');
+    }
+  }
+
+  /**
+   * Show the export preview modal with copy/download options.
+   */
+  function showExportModal({ markdown, courseCode, courseName, copySuccess }) {
+    let modal = document.getElementById('spectrumx-export-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'spectrumx-export-modal';
+      modal.className = 'spectrumx-export-modal';
+      document.body.appendChild(modal);
+
+      modal.addEventListener('click', (e) => {
+        if (e.target.matches('[data-action="close-export"]') || e.target === modal) {
+          modal.classList.remove('active');
+        }
+      });
+    }
+
+    const lineCount = markdown.split('\n').length;
+    const charCount = markdown.length;
+
+    modal.innerHTML = `
+      <div class="spectrumx-export-modal-inner">
+        <div class="spectrumx-export-header">
+          <div class="spectrumx-export-header-text">
+            <div class="spectrumx-export-title">📥 Exported to Markdown</div>
+            <div class="spectrumx-export-subtitle">${escapeHtmlExport(courseName)} · ${lineCount} lines · ${charCount.toLocaleString()} chars</div>
+          </div>
+          <button class="spectrumx-export-close" data-action="close-export" aria-label="Close">✕</button>
+        </div>
+
+        ${copySuccess ? `
+          <div class="spectrumx-export-banner success">
+            ✅ Copied to your clipboard! Paste into Notion, Obsidian, Bear, or anywhere.
+          </div>
+        ` : `
+          <div class="spectrumx-export-banner warn">
+            ⚠️ Couldn't auto-copy. Use the buttons below.
+          </div>
+        `}
+
+        <div class="spectrumx-export-actions">
+          <button class="spectrumx-export-action-btn primary" id="spectrumx-copy-md-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+            Copy Again
+          </button>
+          <button class="spectrumx-export-action-btn" id="spectrumx-download-md-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Download .md
+          </button>
+        </div>
+
+        <div class="spectrumx-export-preview-label">Preview</div>
+        <pre class="spectrumx-export-preview"><code>${escapeHtmlExport(markdown)}</code></pre>
+      </div>
+    `;
+
+    modal.classList.add('active');
+
+    document.getElementById('spectrumx-copy-md-btn').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(markdown);
+        showToast('📋 Copied!');
+      } catch (e) {
+        showToast('Copy failed — try the Download button');
+      }
+    });
+
+    document.getElementById('spectrumx-download-md-btn').addEventListener('click', () => {
+      const filename = `${(courseCode || 'course').replace(/[\/\\]/g, '-')}-export-${new Date().toISOString().substring(0, 10)}.md`;
+      const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 100);
+      showToast(`📥 Downloaded: ${filename}`);
+    });
+  }
+
+  function escapeHtmlExport(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+  }
+
+  // ============================================================
+  // Forum TL;DR — AI summarization for forum discussions
+  // ============================================================
+
+  /**
+   * Inject the AI summary button on Moodle forum discussion pages.
+   * Only runs on URLs matching /mod/forum/discuss.php
+   */
+  function injectForumSummary() {
+    if (!window.location.pathname.includes('/mod/forum/discuss.php')) return;
+    if (document.getElementById('spectrumx-summary-btn')) return;
+
+    const header = document.querySelector('#page-header, .page-header-headings, h1');
+    if (!header) return;
+
+    const posts = document.querySelectorAll(
+      '.forumpost, .forum-post-container, [data-region="post"]'
+    );
+    const postCount = posts.length;
+
+    if (postCount < 2) return;
+
+    const btn = document.createElement('button');
+    btn.id = 'spectrumx-summary-btn';
+    btn.className = 'spectrumx-summary-btn';
+    btn.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2l2.5 7h7l-5.5 4.5 2 7-6-4.5-6 4.5 2-7L2 9h7z"/>
+      </svg>
+      <span>Summarize ${postCount} posts</span>
+    `;
+    btn.addEventListener('click', () => runForumSummary());
+
+    header.insertAdjacentElement('afterend', btn);
+  }
+
+  /**
+   * Extract all forum posts from the current discussion page.
+   */
+  function extractForumPosts() {
+    const posts = [];
+    const postEls = document.querySelectorAll(
+      '.forumpost, .forum-post-container, [data-region="post"]'
+    );
+
+    postEls.forEach(post => {
+      const authorEl = post.querySelector('.author, .author-name, [data-region="post-author-name"]');
+      const author = authorEl?.textContent?.trim() || 'Unknown';
+
+      const subjectEl = post.querySelector('.subject, .post-subject, [data-region="post-subject"]');
+      const subject = subjectEl?.textContent?.trim() || '';
+
+      const contentEl = post.querySelector('.posting, .post-content-container, .post-content, [data-region="post-content"]');
+      const content = contentEl?.textContent?.replace(/\s+/g, ' ')?.trim() || '';
+
+      const timeEl = post.querySelector('time, .post-date, [data-region="post-time"]');
+      const date = timeEl?.textContent?.trim() || '';
+
+      if (content) {
+        posts.push({ author, subject, content, date });
+      }
+    });
+
+    return posts;
+  }
+
+  /**
+   * Main flow: extract posts → call Z.AI → show summary card.
+   */
+  async function runForumSummary() {
+    const btn = document.getElementById('spectrumx-summary-btn');
+    if (!btn) return;
+
+    let apiKey;
+    try {
+      const data = await chrome.storage.local.get(['zaiApiKey']);
+      apiKey = data.zaiApiKey;
+    } catch (e) {}
+
+    if (!apiKey) {
+      showSummaryCard({
+        error: 'Set your Z.AI API key in the SpectrumX chatbot first.'
+      });
+      return;
+    }
+
+    const posts = extractForumPosts();
+    if (posts.length === 0) {
+      showSummaryCard({ error: 'No posts found to summarize.' });
+      return;
+    }
+
+    btn.classList.add('loading');
+    btn.disabled = true;
+    showSummaryCard({ loading: true, postCount: posts.length });
+
+    try {
+      const summary = await callZaiForSummary(apiKey, posts);
+      showSummaryCard({ summary, postCount: posts.length });
+    } catch (err) {
+      showSummaryCard({ error: `AI failed: ${err.message}` });
+    } finally {
+      btn.classList.remove('loading');
+      btn.disabled = false;
+    }
+  }
+
+  /**
+   * Send posts to Z.AI GLM-5.1 with a structured prompt for summarization.
+   */
+  async function callZaiForSummary(apiKey, posts) {
+    const threadTitle = document.querySelector('#page-header h1, .page-header-headings h1, h1')?.textContent?.trim() || 'Discussion';
+
+    const formattedPosts = posts.map((p, i) => {
+      const content = p.content.length > 1000 ? p.content.substring(0, 1000) + '...' : p.content;
+      return `[Post ${i + 1}] ${p.author}${p.date ? ' (' + p.date + ')' : ''}: ${content}`;
+    }).join('\n\n');
+
+    const systemPrompt = `You are an AI assistant that helps university students quickly understand long forum discussions on their learning management system.
+
+Read the discussion and return STRICT JSON in this exact format, no other text:
+{
+  "tldr": "1-2 sentence overall summary",
+  "consensus": ["bullet 1", "bullet 2", "bullet 3"],
+  "actionItems": ["thing student should do 1", "thing student should do 2"],
+  "questions": ["unanswered question 1", "unanswered question 2"],
+  "tone": "informative|urgent|casual|frustrated|helpful"
+}
+
+Rules:
+- "tldr" must be max 200 chars
+- "consensus" = the main agreed-upon points (max 4 bullets, each max 100 chars)
+- "actionItems" = things the student should DO based on this thread (max 3, max 80 chars each) — empty array if none
+- "questions" = unanswered questions still being debated (max 3, max 100 chars each) — empty array if none
+- "tone" = the overall vibe of the discussion
+- Be concise. Cut filler. Student wants the takeaway, not a recap.
+- If thread is in Bahasa Malaysia, summarize in English.`;
+
+    const userPrompt = `Discussion Title: ${threadTitle}
+Number of posts: ${posts.length}
+
+Posts:
+${formattedPosts}
+
+Summarize this discussion as a TL;DR for a busy student. Return JSON only.`;
+
+    const response = await fetch('https://api.z.ai/api/paas/v4/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'glm-5.1',
+        max_tokens: 800,
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error?.message || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content || '';
+
+    const clean = text.replace(/```json\s*/gi, '').replace(/```\s*$/g, '').trim();
+
+    return JSON.parse(clean);
+  }
+
+  /**
+   * Show the floating summary card.
+   */
+  function showSummaryCard({ summary, error, loading, postCount }) {
+    let card = document.getElementById('spectrumx-summary-card');
+    if (!card) {
+      card = document.createElement('div');
+      card.id = 'spectrumx-summary-card';
+      card.className = 'spectrumx-summary-card';
+      document.body.appendChild(card);
+
+      card.addEventListener('click', (e) => {
+        if (e.target.matches('[data-action="close-summary"]')) {
+          card.classList.remove('active');
+        }
+      });
+    }
+
+    let inner;
+    if (loading) {
+      inner = `
+        <div class="spectrumx-summary-header">
+          <span class="spectrumx-summary-icon">✨</span>
+          <span class="spectrumx-summary-title">AI is reading ${postCount} posts...</span>
+          <button class="spectrumx-summary-close" data-action="close-summary" aria-label="Close">✕</button>
+        </div>
+        <div class="spectrumx-summary-loading">
+          <div class="spectrumx-summary-pulse"></div>
+          <div class="spectrumx-summary-pulse"></div>
+          <div class="spectrumx-summary-pulse"></div>
+        </div>
+      `;
+    } else if (error) {
+      inner = `
+        <div class="spectrumx-summary-header">
+          <span class="spectrumx-summary-icon">⚠️</span>
+          <span class="spectrumx-summary-title">Summary unavailable</span>
+          <button class="spectrumx-summary-close" data-action="close-summary" aria-label="Close">✕</button>
+        </div>
+        <div class="spectrumx-summary-error">${escapeHtmlSummary(error)}</div>
+      `;
+    } else if (summary) {
+      const toneEmoji = {
+        informative: 'ℹ️', urgent: '🚨', casual: '💬',
+        frustrated: '😤', helpful: '🤝'
+      };
+      const tone = toneEmoji[summary.tone] || '💬';
+
+      let actionsHtml = '';
+      if (summary.actionItems?.length > 0) {
+        actionsHtml = `
+          <div class="spectrumx-summary-section">
+            <div class="spectrumx-summary-section-label">📋 Things to Do</div>
+            <ul class="spectrumx-summary-list spectrumx-summary-actions">
+              ${summary.actionItems.map(a => `<li>${escapeHtmlSummary(a)}</li>`).join('')}
+            </ul>
+          </div>
+        `;
+      }
+
+      let questionsHtml = '';
+      if (summary.questions?.length > 0) {
+        questionsHtml = `
+          <div class="spectrumx-summary-section">
+            <div class="spectrumx-summary-section-label">❓ Open Questions</div>
+            <ul class="spectrumx-summary-list spectrumx-summary-questions">
+              ${summary.questions.map(q => `<li>${escapeHtmlSummary(q)}</li>`).join('')}
+            </ul>
+          </div>
+        `;
+      }
+
+      inner = `
+        <div class="spectrumx-summary-header">
+          <span class="spectrumx-summary-icon">✨</span>
+          <span class="spectrumx-summary-title">AI Summary <span class="spectrumx-summary-tone">${tone}</span></span>
+          <button class="spectrumx-summary-close" data-action="close-summary" aria-label="Close">✕</button>
+        </div>
+        <div class="spectrumx-summary-body">
+          <div class="spectrumx-summary-tldr">${escapeHtmlSummary(summary.tldr)}</div>
+          <div class="spectrumx-summary-section">
+            <div class="spectrumx-summary-section-label">🎯 Key Points</div>
+            <ul class="spectrumx-summary-list">
+              ${summary.consensus.map(c => `<li>${escapeHtmlSummary(c)}</li>`).join('')}
+            </ul>
+          </div>
+          ${actionsHtml}
+          ${questionsHtml}
+          <div class="spectrumx-summary-footer">
+            <span>Summarized ${postCount} posts · Powered by Z.AI</span>
+          </div>
+        </div>
+      `;
+    }
+
+    card.innerHTML = inner;
+    card.classList.add('active');
+  }
+
+  function escapeHtmlSummary(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+  }
+
+  // ============================================================
+  // Universal File Manager — full-page overlay
+  // ============================================================
+
+  /**
+   * Open the full-page File Manager overlay.
+   */
+  async function openFileManager() {
+    let overlay = document.getElementById('spectrumx-file-manager');
+
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'spectrumx-file-manager';
+      overlay.className = 'spectrumx-fm';
+      overlay.innerHTML = buildFileManagerShell();
+      document.body.appendChild(overlay);
+      setupFileManagerHandlers(overlay);
+    }
+
+    overlay.classList.add('active');
+    document.body.style.overflow = 'hidden';
+
+    // Check for cached files
+    try {
+      const cached = await chrome.storage.local.get(['cachedFiles', 'cachedFilesTimestamp']);
+      if (cached.cachedFiles && cached.cachedFiles.length > 0) {
+        const age = Date.now() - new Date(cached.cachedFilesTimestamp).getTime();
+        const isStale = age > 30 * 60 * 1000; // 30 min
+        renderFileManager(overlay, cached.cachedFiles, isStale);
+        return;
+      }
+    } catch (e) {}
+
+    // No cache — trigger scan
+    triggerFileScan(overlay);
+  }
+
+  /**
+   * Build the File Manager shell HTML.
+   */
+  function buildFileManagerShell() {
+    return `
+      <div class="spectrumx-fm-header">
+        <div class="spectrumx-fm-header-left">
+          <span class="spectrumx-fm-logo">⚡</span>
+          <h2 class="spectrumx-fm-title">File Manager</h2>
+          <span class="spectrumx-fm-subtitle" id="fm-subtitle">All files across all courses</span>
+        </div>
+        <div class="spectrumx-fm-header-right">
+          <button class="spectrumx-fm-refresh-btn" id="fm-refresh-btn" title="Re-scan all courses">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 4 23 10 17 10"/>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+            Refresh
+          </button>
+          <button class="spectrumx-fm-close-btn" id="fm-close-btn" title="Close" aria-label="Close">✕</button>
+        </div>
+      </div>
+
+      <div class="spectrumx-fm-toolbar">
+        <div class="spectrumx-fm-search-wrapper">
+          <svg class="spectrumx-fm-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="M21 21l-4.35-4.35"/>
+          </svg>
+          <input type="text" class="spectrumx-fm-search" id="fm-search" placeholder="Search files across all courses..." autocomplete="off" spellcheck="false">
+        </div>
+
+        <div class="spectrumx-fm-filters" id="fm-filters">
+          <button class="spectrumx-fm-filter active" data-filter="all">All</button>
+          <button class="spectrumx-fm-filter" data-filter="pdf">📄 PDF</button>
+          <button class="spectrumx-fm-filter" data-filter="pptx">📊 Slides</button>
+          <button class="spectrumx-fm-filter" data-filter="docx">📝 Docs</button>
+          <button class="spectrumx-fm-filter" data-filter="video">🎬 Video</button>
+          <button class="spectrumx-fm-filter" data-filter="link">🔗 Links</button>
+          <button class="spectrumx-fm-filter" data-filter="other">📦 Other</button>
+        </div>
+
+        <div class="spectrumx-fm-course-filter">
+          <select class="spectrumx-fm-course-select" id="fm-course-select">
+            <option value="all">All Courses</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="spectrumx-fm-stats" id="fm-stats"></div>
+
+      <div class="spectrumx-fm-body" id="fm-body">
+        <div class="spectrumx-fm-loading" id="fm-loading">
+          <div class="spectrumx-fm-loading-icon">
+            <div class="spectrumx-fm-spinner"></div>
+          </div>
+          <div class="spectrumx-fm-loading-text" id="fm-loading-text">Scanning all courses for files...</div>
+          <div class="spectrumx-fm-loading-progress">
+            <div class="spectrumx-fm-progress-bar" id="fm-progress-bar"></div>
+          </div>
+        </div>
+        <div class="spectrumx-fm-grid" id="fm-grid" style="display:none;"></div>
+        <div class="spectrumx-fm-empty" id="fm-empty" style="display:none;">
+          <div class="spectrumx-fm-empty-icon">📂</div>
+          <div class="spectrumx-fm-empty-text">No files match your filters</div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Wire up all File Manager event handlers.
+   */
+  function setupFileManagerHandlers(overlay) {
+    overlay.querySelector('#fm-close-btn').addEventListener('click', () => {
+      overlay.classList.remove('active');
+      document.body.style.overflow = '';
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && overlay.classList.contains('active')) {
+        overlay.classList.remove('active');
+        document.body.style.overflow = '';
+      }
+    });
+
+    overlay.querySelector('#fm-refresh-btn').addEventListener('click', () => {
+      triggerFileScan(overlay);
+    });
+
+    overlay.querySelector('#fm-search').addEventListener('input', () => {
+      applyFileFilters(overlay);
+    });
+
+    overlay.querySelector('#fm-filters').addEventListener('click', (e) => {
+      const btn = e.target.closest('.spectrumx-fm-filter');
+      if (!btn) return;
+      overlay.querySelectorAll('.spectrumx-fm-filter').forEach(f => f.classList.remove('active'));
+      btn.classList.add('active');
+      applyFileFilters(overlay);
+    });
+
+    overlay.querySelector('#fm-course-select').addEventListener('change', () => {
+      applyFileFilters(overlay);
+    });
+  }
+
+  /**
+   * Trigger a full file scan across all courses.
+   */
+  async function triggerFileScan(overlay) {
+    const loading = overlay.querySelector('#fm-loading');
+    const grid = overlay.querySelector('#fm-grid');
+    const loadingText = overlay.querySelector('#fm-loading-text');
+    const progressBar = overlay.querySelector('#fm-progress-bar');
+
+    loading.style.display = 'flex';
+    grid.style.display = 'none';
+    progressBar.style.width = '0%';
+
+    const listener = (message) => {
+      if (message.type === 'DEEP_SCAN_PROGRESS') {
+        loadingText.textContent = message.payload.message;
+        if (message.payload.progress) {
+          progressBar.style.width = message.payload.progress + '%';
+        }
+      }
+    };
+    chrome.runtime.onMessage.addListener(listener);
+
+    try {
+      const result = await chrome.runtime.sendMessage({ type: 'SCAN_ALL_FILES' });
+      chrome.runtime.onMessage.removeListener(listener);
+
+      if (result.success) {
+        renderFileManager(overlay, result.files, false);
+      } else {
+        loadingText.textContent = `Scan failed: ${result.error || 'Unknown error'}`;
+      }
+    } catch (err) {
+      chrome.runtime.onMessage.removeListener(listener);
+      loadingText.textContent = `Error: ${err.message}`;
+    }
+  }
+
+  /**
+   * Render files into the grid.
+   */
+  function renderFileManager(overlay, files, isStale) {
+    const loading = overlay.querySelector('#fm-loading');
+    const grid = overlay.querySelector('#fm-grid');
+    const stats = overlay.querySelector('#fm-stats');
+    const subtitle = overlay.querySelector('#fm-subtitle');
+    const courseSelect = overlay.querySelector('#fm-course-select');
+
+    loading.style.display = 'none';
+    grid.style.display = 'grid';
+
+    overlay._allFiles = files;
+
+    const courseIds = [...new Set(files.map(f => f.courseId))].sort();
+    courseSelect.innerHTML = '<option value="all">All Courses</option>';
+    courseIds.forEach(cid => {
+      const opt = document.createElement('option');
+      opt.value = cid;
+      opt.textContent = cid;
+      courseSelect.appendChild(opt);
+    });
+
+    const pdfCount = files.filter(f => f.fileType === 'pdf').length;
+    const slideCount = files.filter(f => f.fileType === 'pptx').length;
+    const videoCount = files.filter(f => f.fileType === 'video').length;
+    const totalCourses = courseIds.length;
+
+    stats.innerHTML = `
+      <span class="spectrumx-fm-stat">${files.length} files</span>
+      <span class="spectrumx-fm-stat-dot">·</span>
+      <span class="spectrumx-fm-stat">${totalCourses} courses</span>
+      <span class="spectrumx-fm-stat-dot">·</span>
+      <span class="spectrumx-fm-stat">${pdfCount} PDFs</span>
+      <span class="spectrumx-fm-stat-dot">·</span>
+      <span class="spectrumx-fm-stat">${slideCount} slides</span>
+      <span class="spectrumx-fm-stat-dot">·</span>
+      <span class="spectrumx-fm-stat">${videoCount} videos</span>
+      ${isStale ? '<span class="spectrumx-fm-stale">⚠ Cached — click Refresh for latest</span>' : ''}
+    `;
+
+    subtitle.textContent = `${files.length} files across ${totalCourses} courses`;
+
+    applyFileFilters(overlay);
+  }
+
+  /**
+   * Apply search + type filter + course filter and re-render the grid.
+   */
+  function applyFileFilters(overlay) {
+    const files = overlay._allFiles || [];
+    const query = overlay.querySelector('#fm-search')?.value?.toLowerCase()?.trim() || '';
+    const activeFilter = overlay.querySelector('.spectrumx-fm-filter.active')?.dataset.filter || 'all';
+    const courseFilter = overlay.querySelector('#fm-course-select')?.value || 'all';
+    const grid = overlay.querySelector('#fm-grid');
+    const empty = overlay.querySelector('#fm-empty');
+
+    let filtered = files;
+
+    if (activeFilter !== 'all') {
+      if (activeFilter === 'other') {
+        filtered = filtered.filter(f => !['pdf', 'pptx', 'docx', 'video', 'link'].includes(f.fileType));
+      } else {
+        filtered = filtered.filter(f => f.fileType === activeFilter);
+      }
+    }
+
+    if (courseFilter !== 'all') {
+      filtered = filtered.filter(f => f.courseId === courseFilter);
+    }
+
+    if (query) {
+      filtered = filtered.filter(f => {
+        const searchable = `${f.name} ${f.courseId} ${f.courseName || ''} ${f.section} ${f.description}`.toLowerCase();
+        return searchable.includes(query);
+      });
+    }
+
+    if (filtered.length === 0) {
+      grid.style.display = 'none';
+      empty.style.display = 'flex';
+      return;
+    }
+
+    empty.style.display = 'none';
+    grid.style.display = 'grid';
+
+    const grouped = {};
+    filtered.forEach(f => {
+      const key = f.courseId;
+      if (!grouped[key]) grouped[key] = {};
+      const secKey = f.section || 'General';
+      if (!grouped[key][secKey]) grouped[key][secKey] = [];
+      grouped[key][secKey].push(f);
+    });
+
+    let html = '';
+    Object.keys(grouped).sort().forEach(courseId => {
+      html += `<div class="spectrumx-fm-course-group">`;
+      html += `<div class="spectrumx-fm-course-header">${escapeHtmlFm(courseId)}</div>`;
+
+      Object.keys(grouped[courseId]).forEach(section => {
+        html += `<div class="spectrumx-fm-section-label">${escapeHtmlFm(section)}</div>`;
+
+        grouped[courseId][section].forEach((file, idx) => {
+          const emoji = getFileEmoji(file.fileType);
+          const badge = getFileBadge(file.fileType);
+          html += `
+            <a class="spectrumx-fm-card" href="${escapeAttrFm(file.url)}" target="_blank" rel="noopener" style="animation-delay: ${idx * 0.02}s;">
+              <span class="spectrumx-fm-card-icon">${emoji}</span>
+              <div class="spectrumx-fm-card-info">
+                <div class="spectrumx-fm-card-name">${escapeHtmlFm(file.name)}</div>
+                <div class="spectrumx-fm-card-meta">${escapeHtmlFm(file.courseId)} · ${escapeHtmlFm(file.section)}</div>
+              </div>
+              <span class="spectrumx-fm-card-badge ${file.fileType}">${badge}</span>
+            </a>
+          `;
+        });
+      });
+
+      html += `</div>`;
+    });
+
+    grid.innerHTML = html;
+  }
+
+  function getFileEmoji(type) {
+    const map = {
+      pdf: '📄', pptx: '📊', docx: '📝', xlsx: '📈',
+      video: '🎬', audio: '🎵', image: '🖼️', zip: '📦',
+      link: '🔗', folder: '📁', code: '💻', html: '🌐',
+      text: '📃', file: '📎'
+    };
+    return map[type] || '📎';
+  }
+
+  function getFileBadge(type) {
+    const map = {
+      pdf: 'PDF', pptx: 'PPT', docx: 'DOC', xlsx: 'XLS',
+      video: 'VID', audio: 'AUD', image: 'IMG', zip: 'ZIP',
+      link: 'LINK', folder: 'DIR', code: 'CODE', html: 'HTML',
+      text: 'TXT', file: 'FILE'
+    };
+    return map[type] || 'FILE';
+  }
+
+  function escapeHtmlFm(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+  }
+
+  function escapeAttrFm(text) {
+    return (text || '').replace(/"/g, '"').replace(/'/g, '&#39;');
+  }
+
+  // ============================================================
   // Main: detect courses → scrape → send to background
   // ============================================================
   const registry = new CourseRegistry();
 
   async function scrapeAndSend() {
+    // ⚠️ DISABLED — old in-page scrapers were unreliable.
+    // ALL data now comes from DeepScan (background worker via offscreen document).
+    // DeepScan fetches the Home page, Calendar, and each Course page directly,
+    // which is more reliable than scraping whatever fragment is in the current DOM.
+    console.log('[SpectrumX] In-page scraping disabled — using DeepScan for all data.');
+    return { events: [], courses: [] };
+
+    /* DISABLED CODE BELOW — kept for reference
     // Always re-detect courses first (navigation may have changed)
     registry.detect();
 
@@ -1192,6 +2865,7 @@
     }
 
     return data;
+    */
   }
 
   // ============================================================
@@ -1199,6 +2873,13 @@
   // ============================================================
   function init() {
     injectFAB();
+    restoreReaderModeIfNeeded();
+    injectFocusButtons();
+    injectSpotlight();
+    injectForumSummary();
+    injectExportButton();
+    injectAttendancePanel();
+    restoreFocusIfNeeded();
 
     // Scrape after delay for Moodle JS to finish rendering
     setTimeout(async () => {
@@ -1224,7 +2905,10 @@
 
       if (significant) {
         clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(scrapeAndSend, 1500);
+        debounceTimer = setTimeout(() => {
+          scrapeAndSend();
+          injectFocusButtons();
+        }, 1500);
       }
     });
 

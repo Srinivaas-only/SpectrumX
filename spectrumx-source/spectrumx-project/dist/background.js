@@ -22,9 +22,10 @@ chrome.sidePanel
 // Installation & Startup
 // ============================================================
 chrome.runtime.onInstalled.addListener(async () => {
-  console.log('[SpectrumX] Extension installed');
+  console.log('[SpectrumX] Extension installed/updated');
 
-  // Set default settings
+  // Set default settings (preserve existing data if updating)
+  const existing = await chrome.storage.local.get(['events', 'courses', 'lastScraped']);
   await chrome.storage.local.set({
     settings: {
       notificationsEnabled: true,
@@ -32,13 +33,43 @@ chrome.runtime.onInstalled.addListener(async () => {
       showPastEvents: false,
       theme: 'dark'
     },
-    events: [],
-    courses: [],
-    lastScraped: null
+    events: existing.events || [],
+    courses: existing.courses || [],
+    lastScraped: existing.lastScraped || null
   });
 
   // Create notification alarm — checks every 30 minutes
   chrome.alarms.create('checkDeadlines', { periodInMinutes: 30 });
+
+  // Auto-trigger DeepScan after a short delay if no data exists
+  setTimeout(async () => {
+    try {
+      const data = await chrome.storage.local.get(['events', 'lastScraped']);
+      if (!data.events || data.events.length === 0) {
+        console.log('[SpectrumX] No data found — running auto DeepScan');
+        const scanner = new DeepScanner();
+        const results = await scanner.scan((progress) => {
+          chrome.runtime.sendMessage({
+            type: 'DEEP_SCAN_PROGRESS',
+            payload: progress
+          }).catch(() => {});
+        });
+
+        if (results.events.length > 0) {
+          const merged = mergeEvents([], results.events);
+          await chrome.storage.local.set({
+            events: merged,
+            courses: results.courses,
+            lastScraped: new Date().toISOString(),
+            isDemo: false
+          });
+          console.log('[SpectrumX] Auto-DeepScan complete:', results.events.length, 'events');
+        }
+      }
+    } catch (err) {
+      console.error('[SpectrumX] Auto-DeepScan failed:', err);
+    }
+  }, 3000);
 });
 
 // ============================================================
@@ -237,6 +268,35 @@ async function handleMessage(message, sender) {
       }
     }
 
+    // File Manager — scan all courses for files
+    case 'SCAN_ALL_FILES': {
+      try {
+        const scanner = new DeepScanner();
+        const results = await scanner.scanAllFiles((progress) => {
+          chrome.runtime.sendMessage({
+            type: 'DEEP_SCAN_PROGRESS',
+            payload: progress
+          }).catch(() => {});
+        });
+
+        // Cache in storage for instant load next time
+        await chrome.storage.local.set({
+          cachedFiles: results.files,
+          cachedFilesTimestamp: new Date().toISOString()
+        });
+
+        return {
+          success: true,
+          files: results.files,
+          totalFiles: results.files.length,
+          errors: results.errors
+        };
+      } catch (err) {
+        console.error('[SpectrumX] File scan error:', err);
+        return { success: false, error: err.message };
+      }
+    }
+
     // DeepScan — crawl multiple Spectrum pages for events via offscreen document
     case 'DEEP_SCAN': {
       try {
@@ -323,3 +383,35 @@ chrome.notifications.onClicked.addListener(async (notificationId) => {
     }
   }
 });
+
+// ============================================================
+// Helper functions
+// ============================================================
+
+/**
+ * Merge two event arrays with dedup by courseId + title + date.
+ */
+function mergeEvents(existing, incoming) {
+  const all = [...existing, ...incoming];
+  const seen = new Set();
+  return all.filter(evt => {
+    if (!evt || !evt.date || !evt.title) return false;
+    const key = `${evt.courseId || 'X'}-${evt.title.toLowerCase().trim()}-${evt.date.substring(0, 10)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Dedupe courses by id.
+ */
+function dedupeCourses(courses) {
+  const seen = new Set();
+  return courses.filter(c => {
+    if (!c || !c.id) return false;
+    if (seen.has(c.id)) return false;
+    seen.add(c.id);
+    return true;
+  });
+}

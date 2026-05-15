@@ -65,6 +65,38 @@
       return this;
     }
 
+    /**
+     * Load courses from chrome.storage (populated by DeepScan).
+     * Falls back to DOM scan if storage is empty.
+     */
+    async detectFromStorage() {
+      this.courses.clear();
+      try {
+        const data = await chrome.storage.local.get(['courses']);
+        const stored = data.courses || [];
+        if (stored.length > 0) {
+          stored.forEach(c => {
+            const key = c.moodleId || c.id || c.code;
+            if (key && !this.courses.has(key)) {
+              this.courses.set(key, {
+                id: key,
+                name: c.name || c.id,
+                code: c.code || c.id,
+                url: c.url || ''
+              });
+            }
+          });
+          console.log(`[SpectrumX] CourseRegistry: loaded ${this.courses.size} courses from storage`);
+          this.initialized = true;
+          return this;
+        }
+      } catch (e) {
+        console.warn('[SpectrumX] CourseRegistry storage read failed:', e);
+      }
+      // Fallback to DOM scan
+      return this.detect();
+    }
+
     _scanNavigation() {
       // Moodle sidebar with enrolled courses
       const selectors = [
@@ -996,8 +1028,8 @@
   // Deep Scan orchestrator — merges surface + deep results
   // ============================================================
   async function deepScanAndSend() {
-    // Re-detect courses first
-    registry.detect();
+    // Re-detect courses — prefer storage (DeepScan data) over DOM scan
+    await registry.detectFromStorage();
 
     const scanner = new DeepScanner(registry);
     const deepData = await scanner.deepScan();
@@ -2795,6 +2827,14 @@ Summarize this discussion as a TL;DR for a busy student. Return JSON only.`;
   const registry = new CourseRegistry();
 
   async function scrapeAndSend() {
+    // ⚠️ DISABLED — old in-page scrapers were unreliable.
+    // ALL data now comes from DeepScan (background worker via offscreen document).
+    // DeepScan fetches the Home page, Calendar, and each Course page directly,
+    // which is more reliable than scraping whatever fragment is in the current DOM.
+    console.log('[SpectrumX] In-page scraping disabled — using DeepScan for all data.');
+    return { events: [], courses: [] };
+
+    /* DISABLED CODE BELOW — kept for reference
     // Always re-detect courses first (navigation may have changed)
     registry.detect();
 
@@ -2825,6 +2865,7 @@ Summarize this discussion as a TL;DR for a busy student. Return JSON only.`;
     }
 
     return data;
+    */
   }
 
   // ============================================================

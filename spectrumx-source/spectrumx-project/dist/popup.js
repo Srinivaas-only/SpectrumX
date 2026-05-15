@@ -446,7 +446,7 @@ document.getElementById('smartScanBtn').addEventListener('click', async () => {
     }
   } catch (e) { return; }
 
-  // Get API key — same as chatbot, with built-in fallback
+  // Get API key — same key as chatbot (ilmuApiKey), with built-in fallback
   const BUILT_IN_KEY = 'sk-74051ec75bec68491743904988c68f95d7e67b977634fd8f';
   const stored = await chrome.storage.local.get(['ilmuApiKey']);
   const apiKey = stored.ilmuApiKey || BUILT_IN_KEY;

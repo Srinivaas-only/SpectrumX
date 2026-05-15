@@ -9,7 +9,7 @@
 .spectrumx-fab-container {
   position: fixed;
   bottom: 24px;
-  right: 24px;
+  left: 24px;
   z-index: 99999;
   display: flex;
   flex-direction: column-reverse;
@@ -120,7 +120,6 @@
 .spectrumx-fab-menu-item:hover {
   background: rgba(108, 92, 231, 0.15);
   border-color: rgba(108, 92, 231, 0.4);
-  transform: translateX(-4px);
 }
 
 /* ============================================================
@@ -129,7 +128,7 @@
 .spectrumx-toast {
   position: fixed;
   bottom: 96px;
-  right: 24px;
+  left: 24px;
   z-index: 99999;
   padding: 12px 20px;
   border-radius: 12px;
@@ -151,3 +150,1440 @@
   opacity: 1;
   transform: translateY(0);
 }
+
+/* ============================================================
+   Reader Mode — strips Moodle UI for distraction-free reading
+   ============================================================ */
+html.spectrumx-reader-mode {
+  background: #0F0E13 !important;
+}
+
+html.spectrumx-reader-mode body {
+  background: #0F0E13 !important;
+  color: #E8E6F0 !important;
+}
+
+/* Hide everything by default */
+html.spectrumx-reader-mode #page-wrapper > *:not(#page),
+html.spectrumx-reader-mode nav.navbar,
+html.spectrumx-reader-mode .drawer,
+html.spectrumx-reader-mode #theme_moove-drawers-primary,
+html.spectrumx-reader-mode #theme_boost-drawers-blocks,
+html.spectrumx-reader-mode #accessibilitybar,
+html.spectrumx-reader-mode #page-header,
+html.spectrumx-reader-mode #page-footer,
+html.spectrumx-reader-mode footer,
+html.spectrumx-reader-mode .drawer-toggles,
+html.spectrumx-reader-mode .secondary-navigation,
+html.spectrumx-reader-mode [data-region="blocks-column"],
+html.spectrumx-reader-mode [data-region="popover-region"],
+html.spectrumx-reader-mode aside,
+html.spectrumx-reader-mode .block-region,
+html.spectrumx-reader-mode .navbar,
+html.spectrumx-reader-mode .breadcrumb-nav,
+html.spectrumx-reader-mode .toast-wrapper {
+  display: none !important;
+}
+
+/* Keep the SpectrumX FAB visible */
+html.spectrumx-reader-mode #spectrumx-fab,
+html.spectrumx-reader-mode #spectrumx-toast {
+  display: block !important;
+}
+
+/* Main content area — center it, restyle for reading */
+html.spectrumx-reader-mode #page-wrapper {
+  background: #0F0E13 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+html.spectrumx-reader-mode #page {
+  margin: 0 auto !important;
+  padding: 60px 20px !important;
+  max-width: 760px !important;
+  background: transparent !important;
+  width: 100% !important;
+}
+
+html.spectrumx-reader-mode #page-content,
+html.spectrumx-reader-mode #region-main-box,
+html.spectrumx-reader-mode #region-main,
+html.spectrumx-reader-mode .main-inner {
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  max-width: 100% !important;
+  width: 100% !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Typography for reading */
+html.spectrumx-reader-mode #region-main,
+html.spectrumx-reader-mode .main-inner {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
+  font-size: 16px !important;
+  line-height: 1.75 !important;
+  color: #E8E6F0 !important;
+}
+
+html.spectrumx-reader-mode h1,
+html.spectrumx-reader-mode h2,
+html.spectrumx-reader-mode h3,
+html.spectrumx-reader-mode h4,
+html.spectrumx-reader-mode h5 {
+  color: #F0EEF6 !important;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin-top: 1.5em !important;
+  margin-bottom: 0.5em !important;
+  font-weight: 700 !important;
+}
+
+html.spectrumx-reader-mode h1 { font-size: 32px !important; }
+html.spectrumx-reader-mode h2 { font-size: 24px !important; }
+html.spectrumx-reader-mode h3 { font-size: 20px !important; }
+
+html.spectrumx-reader-mode p,
+html.spectrumx-reader-mode li,
+html.spectrumx-reader-mode td {
+  color: #C9C5D4 !important;
+  background: transparent !important;
+}
+
+html.spectrumx-reader-mode a {
+  color: #A78BFA !important;
+  text-decoration: underline !important;
+}
+
+html.spectrumx-reader-mode a:hover {
+  color: #C4B5FD !important;
+}
+
+html.spectrumx-reader-mode hr {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Code blocks */
+html.spectrumx-reader-mode pre,
+html.spectrumx-reader-mode code {
+  background: #1A1A25 !important;
+  color: #E8E6F0 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 8px !important;
+  padding: 12px !important;
+}
+
+/* Tables — keep them readable in dark mode */
+html.spectrumx-reader-mode table {
+  background: transparent !important;
+  border-collapse: collapse !important;
+  width: 100% !important;
+}
+
+html.spectrumx-reader-mode th {
+  background: #1A1A25 !important;
+  color: #F0EEF6 !important;
+  padding: 12px !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  text-align: left !important;
+}
+
+html.spectrumx-reader-mode td {
+  padding: 12px !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Images — center them, add subtle border */
+html.spectrumx-reader-mode img {
+  display: block !important;
+  margin: 24px auto !important;
+  max-width: 100% !important;
+  border-radius: 8px !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Lists */
+html.spectrumx-reader-mode ul,
+html.spectrumx-reader-mode ol {
+  margin: 12px 0 !important;
+  padding-left: 24px !important;
+}
+
+/* Activity cards — keep them visible but restyled */
+html.spectrumx-reader-mode .activity,
+html.spectrumx-reader-mode .activity-wrapper {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: 12px !important;
+  padding: 16px !important;
+  margin: 8px 0 !important;
+}
+
+/* Section content separators */
+html.spectrumx-reader-mode .section-summary,
+html.spectrumx-reader-mode .section-item {
+  background: transparent !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Forum posts — make them readable */
+html.spectrumx-reader-mode .forumpost,
+html.spectrumx-reader-mode .post-content-container {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06) !important;
+  border-radius: 12px !important;
+  padding: 20px !important;
+  margin: 12px 0 !important;
+  color: #C9C5D4 !important;
+}
+
+/* Buttons — restyle subtly */
+html.spectrumx-reader-mode .btn,
+html.spectrumx-reader-mode button:not(#spectrumx-main-btn):not(.spectrumx-fab-menu-item) {
+  background: rgba(139, 92, 246, 0.1) !important;
+  border: 1px solid rgba(139, 92, 246, 0.3) !important;
+  color: #A78BFA !important;
+  border-radius: 8px !important;
+}
+
+html.spectrumx-reader-mode .btn-primary {
+  background: rgba(139, 92, 246, 0.2) !important;
+  border-color: rgba(139, 92, 246, 0.5) !important;
+}
+
+/* Reader Mode indicator pill — top right corner */
+html.spectrumx-reader-mode body::before {
+  content: '🧘 Reader Mode';
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 10000;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.15);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  color: #A78BFA;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+/* ============================================================
+   Universal File Manager — Full-page overlay
+   ============================================================ */
+
+.spectrumx-fm {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: none;
+  flex-direction: column;
+  background: #0A090F;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #F0EEF6;
+  overflow: hidden;
+}
+
+.spectrumx-fm.active {
+  display: flex;
+  animation: spectrumx-fm-fade 0.25s ease-out;
+}
+
+@keyframes spectrumx-fm-fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.spectrumx-fm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.3);
+  flex-shrink: 0;
+}
+
+.spectrumx-fm-header-left { display: flex; align-items: center; gap: 12px; }
+.spectrumx-fm-logo { font-size: 22px; }
+.spectrumx-fm-title { font-size: 18px; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
+.spectrumx-fm-subtitle { font-size: 12px; color: rgba(255, 255, 255, 0.4); margin-left: 8px; }
+.spectrumx-fm-header-right { display: flex; align-items: center; gap: 8px; }
+
+.spectrumx-fm-refresh-btn {
+  display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 10px;
+  border: 1px solid rgba(139, 92, 246, 0.3); background: rgba(139, 92, 246, 0.1);
+  color: #A78BFA; font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+  transition: all 0.2s ease;
+}
+.spectrumx-fm-refresh-btn:hover { background: rgba(139, 92, 246, 0.18); }
+
+.spectrumx-fm-close-btn {
+  width: 36px; height: 36px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04); color: rgba(255, 255, 255, 0.6); font-size: 16px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center; font-family: inherit;
+  transition: all 0.15s ease;
+}
+.spectrumx-fm-close-btn:hover { background: rgba(255, 255, 255, 0.08); color: white; }
+
+.spectrumx-fm-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04); background: rgba(0, 0, 0, 0.15); flex-shrink: 0;
+}
+
+.spectrumx-fm-search-wrapper {
+  display: flex; align-items: center; gap: 8px; flex: 1; min-width: 250px; max-width: 450px;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px; padding: 8px 14px; transition: border-color 0.2s ease;
+}
+.spectrumx-fm-search-wrapper:focus-within { border-color: rgba(139, 92, 246, 0.4); }
+.spectrumx-fm-search-icon { color: rgba(255, 255, 255, 0.3); flex-shrink: 0; }
+.spectrumx-fm-search {
+  flex: 1; background: transparent; border: none; outline: none; color: #F0EEF6;
+  font-family: inherit; font-size: 14px;
+}
+.spectrumx-fm-search::placeholder { color: rgba(255, 255, 255, 0.3); }
+
+.spectrumx-fm-filters { display: flex; gap: 4px; flex-wrap: wrap; }
+.spectrumx-fm-filter {
+  padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent; color: rgba(255, 255, 255, 0.5); font-family: inherit;
+  font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.15s ease; white-space: nowrap;
+}
+.spectrumx-fm-filter:hover { color: rgba(255, 255, 255, 0.8); }
+.spectrumx-fm-filter.active { background: rgba(139, 92, 246, 0.15); border-color: rgba(139, 92, 246, 0.3); color: #A78BFA; }
+
+.spectrumx-fm-course-filter { margin-left: auto; }
+.spectrumx-fm-course-select {
+  padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04); color: #F0EEF6; font-family: inherit;
+  font-size: 12px; font-weight: 600; cursor: pointer; outline: none;
+}
+.spectrumx-fm-course-select option { background: #1A1A25; color: #F0EEF6; }
+
+.spectrumx-fm-stats {
+  display: flex; align-items: center; gap: 6px; padding: 8px 24px;
+  font-size: 11px; color: rgba(255, 255, 255, 0.4); flex-shrink: 0;
+}
+.spectrumx-fm-stat { font-weight: 600; }
+.spectrumx-fm-stat-dot { opacity: 0.3; }
+.spectrumx-fm-stale { margin-left: auto; color: #FBBF24; font-weight: 700; }
+
+.spectrumx-fm-body {
+  flex: 1; overflow-y: auto; padding: 16px 24px 24px;
+  scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+}
+.spectrumx-fm-body::-webkit-scrollbar { width: 6px; }
+.spectrumx-fm-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
+
+.spectrumx-fm-grid { display: grid; grid-template-columns: 1fr; gap: 4px; }
+.spectrumx-fm-course-group { margin-bottom: 20px; }
+.spectrumx-fm-course-header {
+  font-size: 14px; font-weight: 800; color: #A78BFA; padding: 8px 0 4px; margin-bottom: 4px;
+  border-bottom: 1px solid rgba(139, 92, 246, 0.15); letter-spacing: -0.01em;
+}
+.spectrumx-fm-section-label {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.3); padding: 10px 0 4px;
+}
+
+.spectrumx-fm-card {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.03);
+  text-decoration: none; color: inherit; cursor: pointer; transition: all 0.15s ease;
+  animation: spectrumx-fm-card-in 0.3s ease both;
+}
+@keyframes spectrumx-fm-card-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.spectrumx-fm-card:hover { background: rgba(139, 92, 246, 0.06); border-color: rgba(139, 92, 246, 0.15); transform: translateX(3px); }
+.spectrumx-fm-card:active { transform: scale(0.995); }
+
+.spectrumx-fm-card-icon {
+  font-size: 20px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; background: rgba(255, 255, 255, 0.03); flex-shrink: 0;
+}
+.spectrumx-fm-card-info { flex: 1; min-width: 0; }
+.spectrumx-fm-card-name { font-size: 13px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
+.spectrumx-fm-card-meta { font-size: 10px; color: rgba(255, 255, 255, 0.35); }
+
+.spectrumx-fm-card-badge {
+  padding: 3px 8px; border-radius: 6px; font-size: 9px; font-weight: 800; letter-spacing: 0.06em;
+  flex-shrink: 0; background: rgba(255, 255, 255, 0.04); color: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.spectrumx-fm-card-badge.pdf { background: rgba(239, 68, 68, 0.08); color: #F87171; border-color: rgba(239, 68, 68, 0.2); }
+.spectrumx-fm-card-badge.pptx { background: rgba(251, 146, 60, 0.08); color: #FB923C; border-color: rgba(251, 146, 60, 0.2); }
+.spectrumx-fm-card-badge.docx { background: rgba(59, 130, 246, 0.08); color: #60A5FA; border-color: rgba(59, 130, 246, 0.2); }
+.spectrumx-fm-card-badge.xlsx { background: rgba(52, 211, 153, 0.08); color: #34D399; border-color: rgba(52, 211, 153, 0.2); }
+.spectrumx-fm-card-badge.video { background: rgba(168, 85, 247, 0.08); color: #C084FC; border-color: rgba(168, 85, 247, 0.2); }
+.spectrumx-fm-card-badge.link { background: rgba(251, 191, 36, 0.08); color: #FCD34D; border-color: rgba(251, 191, 36, 0.2); }
+
+.spectrumx-fm-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 20px; gap: 16px; }
+.spectrumx-fm-spinner { width: 40px; height: 40px; border: 3px solid rgba(139, 92, 246, 0.15); border-top-color: #8B5CF6; border-radius: 50%; animation: spectrumx-spin 0.8s linear infinite; }
+.spectrumx-fm-loading-text { font-size: 14px; color: rgba(255, 255, 255, 0.6); font-weight: 500; }
+.spectrumx-fm-loading-progress { width: 200px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
+.spectrumx-fm-progress-bar { height: 100%; border-radius: 2px; background: linear-gradient(90deg, #8B5CF6, #A78BFA); transition: width 0.3s ease; width: 0%; }
+
+.spectrumx-fm-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 20px; }
+.spectrumx-fm-empty-icon { font-size: 48px; margin-bottom: 12px; opacity: 0.4; }
+.spectrumx-fm-empty-text { font-size: 15px; font-weight: 700; color: rgba(255, 255, 255, 0.6); }
+
+/* ============================================================
+   Focus Mode — hides non-focused sections on course pages
+   ============================================================ */
+
+/* The Focus button on each section header */
+.spectrumx-focus-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  background: rgba(139, 92, 246, 0.08);
+  color: #8B5CF6;
+  font-family: 'Segoe UI', -apple-system, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  vertical-align: middle;
+}
+
+.spectrumx-focus-btn:hover {
+  background: rgba(139, 92, 246, 0.15);
+  border-color: rgba(139, 92, 246, 0.5);
+}
+
+.spectrumx-focus-btn:active {
+  transform: scale(0.95);
+}
+
+.spectrumx-focus-btn svg {
+  flex-shrink: 0;
+}
+
+/* Hidden sections — completely removed from layout */
+.spectrumx-hidden-section {
+  display: none !important;
+}
+
+/* Floating focus bar — appears when a section is focused */
+#spectrumx-focus-bar {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%) translateY(-100%);
+  z-index: 99998;
+  margin-top: 12px;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+#spectrumx-focus-bar.active {
+  transform: translateX(-50%) translateY(70px);
+  pointer-events: auto;
+}
+
+.spectrumx-focus-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: rgba(15, 15, 20, 0.95);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  color: #E8E6F0;
+  font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.spectrumx-focus-bar-icon {
+  font-size: 16px;
+}
+
+.spectrumx-focus-bar-text strong {
+  color: #A78BFA;
+  font-weight: 700;
+  margin-left: 4px;
+}
+
+#spectrumx-show-all-btn {
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  background: rgba(139, 92, 246, 0.15);
+  color: #A78BFA;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+#spectrumx-show-all-btn:hover {
+  background: rgba(139, 92, 246, 0.25);
+}
+
+#spectrumx-show-all-btn:active {
+  transform: scale(0.95);
+}
+
+/* Reader Mode compatibility — Focus button stays visible */
+html.spectrumx-reader-mode .spectrumx-focus-btn {
+  background: rgba(139, 92, 246, 0.15) !important;
+  border-color: rgba(139, 92, 246, 0.4) !important;
+  color: #A78BFA !important;
+}
+
+/* ============================================================
+   Spotlight Search Overlay
+   ============================================================ */
+#spectrumx-spotlight {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+#spectrumx-spotlight.active {
+  display: flex;
+  animation: spectrumx-spotlight-fade 0.18s ease-out;
+}
+
+@keyframes spectrumx-spotlight-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.spectrumx-spotlight-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.spectrumx-spotlight-modal {
+  position: relative;
+  width: 92%;
+  max-width: 620px;
+  max-height: 70vh;
+  background: rgba(15, 14, 19, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(139, 92, 246, 0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: spectrumx-spotlight-scale 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes spectrumx-spotlight-scale {
+  from { opacity: 0; transform: scale(0.96) translateY(-12px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.spectrumx-spotlight-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.spectrumx-spotlight-search-icon {
+  color: rgba(255, 255, 255, 0.4);
+  flex-shrink: 0;
+}
+
+.spectrumx-spotlight-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #F0EEF6;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.spectrumx-spotlight-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.spectrumx-spotlight-kbd {
+  padding: 3px 8px;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+}
+
+.spectrumx-spotlight-results {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+.spectrumx-spotlight-results::-webkit-scrollbar {
+  width: 6px;
+}
+
+.spectrumx-spotlight-results::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.spectrumx-spotlight-group-label {
+  padding: 12px 12px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.spectrumx-spotlight-result {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.spectrumx-spotlight-result:hover,
+.spectrumx-spotlight-result.selected {
+  background: rgba(139, 92, 246, 0.12);
+}
+
+.spectrumx-spotlight-result.selected {
+  background: rgba(139, 92, 246, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.3);
+}
+
+.spectrumx-spotlight-result-icon {
+  font-size: 18px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  flex-shrink: 0;
+}
+
+.spectrumx-spotlight-result-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.spectrumx-spotlight-result-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #F0EEF6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+.spectrumx-spotlight-result-subtitle {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spectrumx-spotlight-result-type {
+  padding: 2px 7px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgba(139, 92, 246, 0.8);
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.spectrumx-spotlight-empty {
+  padding: 48px 20px;
+  text-align: center;
+}
+
+.spectrumx-spotlight-empty-icon {
+  font-size: 36px;
+  margin-bottom: 12px;
+  opacity: 0.5;
+}
+
+.spectrumx-spotlight-empty-text {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 4px;
+}
+
+.spectrumx-spotlight-empty-hint {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.spectrumx-spotlight-footer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.spectrumx-spotlight-hint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.spectrumx-spotlight-hint kbd {
+  padding: 2px 5px;
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  min-width: 16px;
+  text-align: center;
+}
+
+.spectrumx-spotlight-brand {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(139, 92, 246, 0.7);
+}
+
+/* ============================================================
+   Forum TL;DR — Summarize button + summary card
+   ============================================================ */
+
+.spectrumx-summary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0;
+  padding: 10px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(168, 85, 247, 0.1) 100%);
+  color: #A78BFA;
+  font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.spectrumx-summary-btn:hover {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.25) 0%, rgba(168, 85, 247, 0.15) 100%);
+  border-color: rgba(139, 92, 246, 0.5);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);
+}
+
+.spectrumx-summary-btn:active {
+  transform: scale(0.97);
+}
+
+.spectrumx-summary-btn.loading {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.spectrumx-summary-btn.loading svg {
+  animation: spectrumx-spin 1s linear infinite;
+}
+
+@keyframes spectrumx-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* The floating summary card */
+.spectrumx-summary-card {
+  position: fixed;
+  top: 50%;
+  right: -480px;
+  transform: translateY(-50%);
+  z-index: 99998;
+  width: 92%;
+  max-width: 440px;
+  max-height: 80vh;
+  background: rgba(15, 14, 19, 0.97);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(139, 92, 246, 0.1);
+  font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+  color: #F0EEF6;
+  overflow: hidden;
+  transition: right 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+}
+
+.spectrumx-summary-card.active {
+  right: 24px;
+}
+
+.spectrumx-summary-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.08) 0%, transparent 100%);
+}
+
+.spectrumx-summary-icon {
+  font-size: 18px;
+}
+
+.spectrumx-summary-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.spectrumx-summary-tone {
+  margin-left: 4px;
+  font-size: 16px;
+}
+
+.spectrumx-summary-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.spectrumx-summary-close:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.spectrumx-summary-body {
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+.spectrumx-summary-body::-webkit-scrollbar {
+  width: 4px;
+}
+
+.spectrumx-summary-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+
+.spectrumx-summary-tldr {
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #E8E6F0;
+  background: rgba(139, 92, 246, 0.08);
+  border-left: 3px solid #8B5CF6;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.spectrumx-summary-section {
+  margin-bottom: 16px;
+}
+
+.spectrumx-summary-section-label {
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.spectrumx-summary-list {
+  margin: 0;
+  padding-left: 20px;
+  list-style: none;
+}
+
+.spectrumx-summary-list li {
+  position: relative;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #C9C5D4;
+}
+
+.spectrumx-summary-list li::before {
+  content: '•';
+  position: absolute;
+  left: -16px;
+  color: rgba(139, 92, 246, 0.8);
+  font-weight: 700;
+}
+
+.spectrumx-summary-actions li::before {
+  content: '▸';
+  color: #FBBF24;
+}
+
+.spectrumx-summary-questions li::before {
+  content: '?';
+  color: #34D399;
+  font-weight: 700;
+}
+
+.spectrumx-summary-footer {
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.3);
+  text-align: center;
+}
+
+/* Loading state */
+.spectrumx-summary-loading {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  padding: 40px;
+}
+
+.spectrumx-summary-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #8B5CF6;
+  animation: spectrumx-pulse-loading 1.4s ease-in-out infinite;
+}
+
+.spectrumx-summary-pulse:nth-child(2) { animation-delay: 0.15s; }
+.spectrumx-summary-pulse:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes spectrumx-pulse-loading {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Error state */
+.spectrumx-summary-error {
+  padding: 20px;
+  font-size: 13px;
+  color: #FF6B6B;
+  background: rgba(255, 71, 87, 0.05);
+  border-radius: 8px;
+  margin: 16px;
+  line-height: 1.5;
+}
+
+/* ============================================================
+   Export to Markdown — button + preview modal
+   ============================================================ */
+
+.spectrumx-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 8px 16px 0;
+  padding: 10px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.12) 0%, rgba(16, 185, 129, 0.08) 100%);
+  color: #34D399;
+  font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.spectrumx-export-btn:hover {
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.22) 0%, rgba(16, 185, 129, 0.12) 100%);
+  border-color: rgba(52, 211, 153, 0.5);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(52, 211, 153, 0.2);
+}
+
+.spectrumx-export-btn:active {
+  transform: scale(0.97);
+}
+
+.spectrumx-export-btn.loading {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.spectrumx-export-btn.loading svg {
+  animation: spectrumx-spin 1s linear infinite;
+}
+
+/* Export modal */
+.spectrumx-export-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 5vh 5vw;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
+}
+
+.spectrumx-export-modal.active {
+  display: flex;
+  animation: spectrumx-fade-in 0.18s ease-out;
+}
+
+@keyframes spectrumx-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.spectrumx-export-modal-inner {
+  width: 100%;
+  max-width: 720px;
+  max-height: 90vh;
+  background: rgba(15, 14, 19, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(52, 211, 153, 0.1);
+  color: #F0EEF6;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: spectrumx-export-scale 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes spectrumx-export-scale {
+  from { opacity: 0; transform: scale(0.96) translateY(-8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.spectrumx-export-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.05) 0%, transparent 100%);
+}
+
+.spectrumx-export-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.spectrumx-export-title {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin-bottom: 2px;
+}
+
+.spectrumx-export-subtitle {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spectrumx-export-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.spectrumx-export-close:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.spectrumx-export-banner {
+  margin: 14px 18px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.spectrumx-export-banner.success {
+  background: rgba(52, 211, 153, 0.08);
+  border: 1px solid rgba(52, 211, 153, 0.2);
+  color: #6EE7B7;
+}
+
+.spectrumx-export-banner.warn {
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  color: #FCD34D;
+}
+
+.spectrumx-export-actions {
+  display: flex;
+  gap: 8px;
+  padding: 14px 18px;
+}
+
+.spectrumx-export-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: #E8E6F0;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.spectrumx-export-action-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.spectrumx-export-action-btn.primary {
+  background: rgba(52, 211, 153, 0.12);
+  border-color: rgba(52, 211, 153, 0.3);
+  color: #6EE7B7;
+}
+
+.spectrumx-export-action-btn.primary:hover {
+  background: rgba(52, 211, 153, 0.18);
+}
+
+.spectrumx-export-action-btn:active {
+  transform: scale(0.96);
+}
+
+.spectrumx-export-preview-label {
+  padding: 0 18px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.spectrumx-export-preview {
+  flex: 1;
+  margin: 0 18px 18px;
+  padding: 14px 16px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: #C9C5D4;
+  overflow: auto;
+  max-height: 50vh;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.spectrumx-export-preview::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.spectrumx-export-preview::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.spectrumx-export-preview code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-family: inherit;
+}
+
+/* ============================================================
+   Quick Attendance — scanner card + course page highlights
+   ============================================================ */
+
+.spectrumx-attendance-card {
+  position: fixed; top: 50%; right: -480px; transform: translateY(-50%);
+  z-index: 99998; width: 92%; max-width: 420px; max-height: 80vh;
+  background: rgba(15, 14, 19, 0.97); backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(52, 211, 153, 0.1);
+  font-family: 'Plus Jakarta Sans', sans-serif; color: #F0EEF6;
+  overflow: hidden; transition: right 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex; flex-direction: column;
+}
+.spectrumx-attendance-card.active { right: 24px; }
+.spectrumx-attendance-header {
+  display: flex; align-items: center; gap: 10px; padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.08) 0%, transparent 100%);
+}
+.spectrumx-attendance-icon { font-size: 18px; }
+.spectrumx-attendance-title { flex: 1; font-size: 14px; font-weight: 700; }
+.spectrumx-attendance-close {
+  width: 28px; height: 28px; border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06); background: transparent;
+  color: rgba(255, 255, 255, 0.5); cursor: pointer; font-size: 12px;
+  display: flex; align-items: center; justify-content: center;
+}
+.spectrumx-attendance-close:hover { background: rgba(255,255,255,0.05); color: #fff; }
+.spectrumx-attendance-loading { display: flex; gap: 8px; justify-content: center; padding: 40px 20px; }
+.spectrumx-attendance-pulse {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: rgba(52, 211, 153, 0.6);
+  animation: spectrumx-att-pulse 1.2s ease-in-out infinite;
+}
+.spectrumx-attendance-pulse:nth-child(2) { animation-delay: 0.15s; }
+.spectrumx-attendance-pulse:nth-child(3) { animation-delay: 0.3s; }
+@keyframes spectrumx-att-pulse {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+.spectrumx-attendance-empty { padding: 32px 20px; text-align: center; }
+.spectrumx-attendance-empty-icon { font-size: 36px; margin-bottom: 12px; }
+.spectrumx-attendance-empty-text { font-size: 15px; font-weight: 700; color: #F0EEF6; margin-bottom: 8px; }
+.spectrumx-attendance-empty-hint { font-size: 12px; color: rgba(255, 255, 255, 0.4); line-height: 1.5; }
+.spectrumx-attendance-sessions { overflow-y: auto; padding: 8px 0; max-height: 50vh; }
+.spectrumx-attendance-session {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px; text-decoration: none; color: inherit;
+  transition: background 0.15s ease; border-left: 3px solid transparent;
+}
+.spectrumx-attendance-session:hover { background: rgba(52, 211, 153, 0.06); border-left-color: rgba(52, 211, 153, 0.4); }
+.spectrumx-attendance-session-icon { font-size: 16px; flex-shrink: 0; }
+.spectrumx-attendance-session-content { flex: 1; min-width: 0; }
+.spectrumx-attendance-session-name { font-size: 13px; font-weight: 600; color: #F0EEF6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spectrumx-attendance-session-course { font-size: 11px; color: rgba(255, 255, 255, 0.4); margin-top: 2px; }
+.spectrumx-attendance-session-go { font-size: 16px; color: rgba(52, 211, 153, 0.6); font-weight: 700; }
+.spectrumx-attendance-footer {
+  padding: 10px 16px; border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 11px; color: rgba(255, 255, 255, 0.35); text-align: center;
+}
+
+/* Course page attendance highlight */
+.spectrumx-attendance-highlighted {
+  position: relative;
+  border-left: 3px solid rgba(52, 211, 153, 0.5) !important;
+  background: rgba(52, 211, 153, 0.04) !important;
+  border-radius: 8px !important;
+}
+.spectrumx-attendance-badge {
+  display: inline-block;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+  padding: 2px 8px; border-radius: 999px; margin-left: 8px;
+  background: rgba(52, 211, 153, 0.15); border: 1px solid rgba(52, 211, 153, 0.3);
+  color: #34D399; vertical-align: middle;
+}
+.spectrumx-attendance-form-highlight {
+  outline: 2px solid rgba(52, 211, 153, 0.5) !important;
+  outline-offset: 8px; border-radius: 12px;
+  box-shadow: 0 0 24px rgba(52, 211, 153, 0.15) !important;
+}
+
+/* ============================================================
+   Attendance Panel — floating panel for marking attendance
+   ============================================================ */
+
+.spectrumx-attendance-panel {
+  position: fixed; bottom: 80px; right: -420px; z-index: 99997;
+  width: 380px; max-height: 60vh;
+  background: rgba(15, 14, 19, 0.97); backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(52, 211, 153, 0.1);
+  font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif; color: #F0EEF6;
+  display: flex; flex-direction: column; overflow: hidden;
+  transition: right 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.spectrumx-attendance-panel.active { right: 24px; }
+
+.spectrumx-att-header {
+  display: flex; align-items: center; gap: 8px; padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.06) 0%, transparent 100%);
+}
+.spectrumx-att-icon { font-size: 18px; }
+.spectrumx-att-title { flex: 1; font-size: 14px; font-weight: 800; }
+.spectrumx-att-count {
+  font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+  background: rgba(52, 211, 153, 0.12); color: #34D399;
+  border: 1px solid rgba(52, 211, 153, 0.25);
+}
+.spectrumx-att-close {
+  width: 26px; height: 26px; border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06); background: transparent;
+  color: rgba(255, 255, 255, 0.5); cursor: pointer; font-size: 12px;
+  display: flex; align-items: center; justify-content: center; font-family: inherit;
+  transition: all 0.15s ease;
+}
+.spectrumx-att-close:hover { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.9); }
+
+.spectrumx-att-body {
+  flex: 1; overflow-y: auto; padding: 8px;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+.spectrumx-att-body::-webkit-scrollbar { width: 4px; }
+.spectrumx-att-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+.spectrumx-att-section-label {
+  padding: 10px 8px 6px; font-size: 10px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.4);
+}
+
+.spectrumx-att-session {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: 10px; margin-bottom: 4px;
+  border: 1px solid rgba(255,255,255,0.04); transition: all 0.2s ease;
+}
+.spectrumx-att-session.open {
+  background: rgba(52, 211, 153, 0.04); border-color: rgba(52, 211, 153, 0.15);
+}
+.spectrumx-att-session.marked { background: rgba(255,255,255,0.02); opacity: 0.6; }
+.spectrumx-att-session-info { flex: 1; min-width: 0; }
+.spectrumx-att-session-name {
+  font-size: 12px; font-weight: 700; color: #E8E6F0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;
+}
+.spectrumx-att-session-time { font-size: 10px; color: rgba(255,255,255,0.4); }
+
+.spectrumx-att-mark-btn {
+  padding: 6px 14px; border-radius: 8px;
+  border: 1px solid rgba(52, 211, 153, 0.4); background: rgba(52, 211, 153, 0.12);
+  color: #34D399; font-family: inherit; font-size: 11px; font-weight: 800;
+  cursor: pointer; transition: all 0.2s ease; white-space: nowrap; flex-shrink: 0;
+}
+.spectrumx-att-mark-btn:hover:not(:disabled) { background: rgba(52,211,153,0.2); transform: translateY(-1px); }
+.spectrumx-att-mark-btn:active:not(:disabled) { transform: scale(0.96); }
+.spectrumx-att-mark-btn:disabled { cursor: not-allowed; opacity: 0.5; }
+.spectrumx-att-mark-btn.password {
+  display: flex; align-items: center; gap: 5px;
+  background: rgba(251,191,36,0.08); border-color: rgba(251,191,36,0.3); color: #FBBF24;
+}
+.spectrumx-att-mark-btn.loading { pointer-events: none; opacity: 0.7; }
+.spectrumx-att-mark-btn.success {
+  background: rgba(52,211,153,0.2); border-color: rgba(52,211,153,0.6); color: #6EE7B7;
+}
+.spectrumx-att-mark-btn.error {
+  background: rgba(255,71,87,0.1); border-color: rgba(255,71,87,0.3); color: #FF6B6B;
+}
+
+.spectrumx-att-status {
+  font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 8px;
+  background: rgba(52,211,153,0.08); color: #6EE7B7; flex-shrink: 0;
+}
+
+.spectrumx-att-loading {
+  display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; padding: 32px 20px;
+}
+.spectrumx-att-pulse {
+  width: 8px; height: 8px; border-radius: 50%; background: #34D399;
+  animation: spectrumx-pulse-loading 1.4s ease-in-out infinite;
+}
+.spectrumx-att-pulse:nth-child(2) { animation-delay: 0.15s; }
+.spectrumx-att-pulse:nth-child(3) { animation-delay: 0.3s; }
+@keyframes spectrumx-pulse-loading {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+.spectrumx-att-loading-text {
+  width: 100%; text-align: center; font-size: 12px; color: rgba(255,255,255,0.5); margin-top: 8px;
+}
+
+.spectrumx-att-empty { padding: 40px 20px; text-align: center; }
+.spectrumx-att-empty-icon { font-size: 32px; margin-bottom: 10px; opacity: 0.5; }
+.spectrumx-att-empty-text { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+.spectrumx-att-empty-hint { font-size: 11px; color: rgba(255,255,255,0.4); }
+
